@@ -5,8 +5,10 @@ Protocol directly (a pipe to the browser it launches, or a WebSocket to one alre
 with no driver process or Node.js sidecar in between. Its own selector strategies are
 registered through the same plugin API third-party code uses.
 
-agito is a Rust port of [Motus](../Motus), the .NET framework. See
-[docs/parity.md](docs/parity.md) for what has been ported so far.
+agito is a Rust port of Motus, a .NET browser automation framework. It is early (0.1):
+Chromium-based browsers only, with no iframe support or network interception yet. See
+[docs/parity.md](https://github.com/TahaHachana/agito/blob/main/docs/parity.md) for what
+has been ported so far.
 
 ## A test
 
