@@ -79,7 +79,7 @@ Settings come from three places, each overriding the one before:
 
 ```json
 {
-  "launch": { "headless": true, "channel": "chrome", "slowMo": 0, "executablePath": null },
+  "launch": { "headless": true, "channel": "chrome", "slowMo": 0, "executablePath": null, "chromiumSandbox": false },
   "context": { "viewport": { "width": 1280, "height": 720 }, "locale": "en-US", "baseURL": "http://localhost:3000" },
   "locator": { "timeout": 30000 },
   "assertions": { "timeout": 10000 },
@@ -88,7 +88,7 @@ Settings come from three places, each overriding the one before:
 ```
 
 Variables: `AGITO_HEADLESS`, `AGITO_CHANNEL`, `AGITO_SLOWMO`, `AGITO_LAUNCH_TIMEOUT`,
-`AGITO_EXECUTABLE_PATH`, `AGITO_LOCALE`, `AGITO_COLOR_SCHEME`, `AGITO_IGNORE_HTTPS_ERRORS`,
+`AGITO_EXECUTABLE_PATH`, `AGITO_CHROMIUM_SANDBOX`, `AGITO_LOCALE`, `AGITO_COLOR_SCHEME`, `AGITO_IGNORE_HTTPS_ERRORS`,
 `AGITO_BASE_URL`, `AGITO_LOCATOR_TIMEOUT`, `AGITO_ASSERTIONS_TIMEOUT`,
 `AGITO_FAILURES_SCREENSHOT`, `AGITO_FAILURES_SCREENSHOT_PATH`, `AGITO_MAX_CONTEXTS`.
 

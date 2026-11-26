@@ -16,6 +16,17 @@
   - Console messages, page errors and dialogs from out-of-process iframes reach the page's
     handlers.
 
+### Fixed
+- Chromium failed to launch on CI runners and other machines that cannot start its sandbox,
+  such as Ubuntu 23.10+ with a browser outside its packaged install path. Launch errors that
+  mention the sandbox now say what to do.
+
+### Changed
+- Chromium runs without its sandbox by default (`--no-sandbox`), as in Playwright. Set
+  `LaunchOptions::chromium_sandbox`, `launch.chromiumSandbox` or `AGITO_CHROMIUM_SANDBOX=1`
+  to keep it.
+- `Error`'s `Debug` output is the error message; use `{:#?}` for the structured form.
+
 ### Changed (breaking)
 - `SelectorStrategy::resolve` takes `frame: &Frame` instead of `page: &Page`;
   `selectors::eval_to_handles` likewise.

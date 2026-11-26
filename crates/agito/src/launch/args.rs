@@ -45,6 +45,9 @@ pub fn chromium_args(
         args.push("--no-startup-window".to_owned());
         args.push("--disable-blink-features=AutomationControlled".to_owned());
     }
+    if !options.chromium_sandbox {
+        args.push("--no-sandbox".to_owned());
+    }
     if let Some(dir) = &options.downloads_path {
         args.push(format!("--download-default-directory={}", dir.display()));
     }
@@ -67,6 +70,17 @@ mod tests {
         assert!(args.contains(&"--headless=new".to_owned()));
         assert!(args.contains(&"--user-data-dir=/tmp/p".to_owned()));
         assert!(args.contains(&"--no-first-run".to_owned()));
+        assert!(args.contains(&"--no-sandbox".to_owned()));
+    }
+
+    #[test]
+    fn sandbox_can_be_kept() {
+        let options = LaunchOptions {
+            chromium_sandbox: true,
+            ..LaunchOptions::default()
+        };
+        let args = chromium_args(&options, Path::new("/tmp/p"), None);
+        assert!(!args.contains(&"--no-sandbox".to_owned()));
     }
 
     #[test]

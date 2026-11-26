@@ -13,8 +13,19 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 ///
 /// The details live in [`ErrorKind`]; the error itself is one pointer wide so `Result`s stay
 /// small on the happy path.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Error(Box<ErrorKind>);
+
+/// Prints the message, so `fn main() -> agito::Result<()>` reports failures readably.
+/// Match on [`Error::kind`] for the structured details.
+impl std::fmt::Debug for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if f.alternate() {
+            return f.debug_tuple("Error").field(&self.0).finish();
+        }
+        std::fmt::Display::fmt(&self.0, f)
+    }
+}
 
 impl Error {
     /// What went wrong, with its details.
