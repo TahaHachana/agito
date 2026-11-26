@@ -124,6 +124,10 @@ pub(crate) fn map_transport_error(
     session_id: Option<&str>,
 ) -> Error {
     match error {
+        // Chrome's ways of saying the target went away under the command.
+        TransportError::Protocol { message, .. } if is_target_gone(&message) => {
+            Error::target_closed("session", session_id, message)
+        }
         TransportError::Protocol { code, message } => ErrorKind::Protocol {
             code: Some(code),
             method: Some(method.to_owned()),
@@ -139,6 +143,16 @@ pub(crate) fn map_transport_error(
         }
         .into(),
     }
+}
+
+fn is_target_gone(message: &str) -> bool {
+    const GONE: &[&str] = &[
+        "Session with given id not found",
+        "Target closed",
+        "No target with given id",
+        "Inspected target navigated or closed",
+    ];
+    GONE.iter().any(|g| message.contains(g))
 }
 
 /// Keeps track of the sessions multiplexed over one connection.
@@ -273,6 +287,18 @@ mod tests {
         fake.disconnect();
         reg.connection().closed().await;
         let err = session
+            .send(&page::EnableParams::default())
+            .await
+            .unwrap_err();
+        assert!(err.is_browser_lost(), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn missing_session_maps_to_browser_lost() {
+        let (fake, reg) = registry();
+        fake.respond_error("Page.enable", -32001, "Session with given id not found.");
+        let err = reg
+            .create_session("S9")
             .send(&page::EnableParams::default())
             .await
             .unwrap_err();

@@ -140,6 +140,10 @@ pub enum ErrorKind {
         message: String,
     },
 
+    /// A script run in the page threw, or returned something that could not be decoded.
+    #[error("{message}")]
+    Evaluation { message: String },
+
     /// The feature needs something the current browser transport cannot do.
     #[error("{0}")]
     NotSupported(String),
@@ -189,7 +193,6 @@ impl Error {
         )
     }
 
-    #[allow(dead_code)] // used once the launcher lands
     pub(crate) fn io(context: impl Into<String>, source: std::io::Error) -> Self {
         ErrorKind::Io {
             context: context.into(),

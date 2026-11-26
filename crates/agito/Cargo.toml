@@ -10,6 +10,8 @@ rust-version.workspace = true
 default = []
 # Fake sockets and protocol helpers for testing code built on agito without a browser.
 testing = []
+# Enables the browser-driving integration tests (needs Chrome/Chromium).
+integration = []
 
 [dependencies]
 agito-protocol = { workspace = true }
@@ -23,7 +25,13 @@ tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
+base64 = "0.23"
+regex = "1"
+inventory = "0.3"
+agito-macros = { path = "../agito-macros" }
 
 [dev-dependencies]
 agito = { path = ".", features = ["testing"] }
 tokio = { workspace = true, features = ["test-util"] }
+async-trait = "0.1"
+regex = "1"

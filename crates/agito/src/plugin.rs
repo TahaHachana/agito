@@ -1,0 +1,204 @@
+//! The plugin API. Built-in selector strategies are registered through it exactly as a
+//! third-party plugin would register its own.
+//!
+//! Plugins come from [`LaunchOptions::plugins`](crate::LaunchOptions::plugins) and from types
+//! marked `#[agito::plugin]`, which are collected at link time.
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
+
+use crate::error::Result;
+use crate::page::{Page, Response};
+use crate::selectors::{SelectorRegistry, SelectorStrategy, register_builtins};
+
+/// A plugin. `on_loaded` runs once per browser context, and is where registration happens.
+#[async_trait]
+pub trait Plugin: Send + Sync + 'static {
+    /// A stable, unique id. Duplicates are skipped (first wins); built-in ids are reserved.
+    fn id(&self) -> &str;
+
+    fn name(&self) -> &str {
+        self.id()
+    }
+
+    async fn on_loaded(&self, context: &mut PluginContext) -> Result<()>;
+
+    async fn on_unloaded(&self) -> Result<()> {
+        Ok(())
+    }
+}
+
+/// What happened in an action, for [`LifecycleHook::after_action`].
+#[derive(Debug, Clone)]
+pub struct ActionResult {
+    pub action: String,
+    /// The error message when the action failed.
+    pub error: Option<String>,
+}
+
+/// Callbacks around navigations, actions and page lifetimes. Every method defaults to doing
+/// nothing. Errors are logged and otherwise ignored: a hook never fails the test.
+#[async_trait]
+pub trait LifecycleHook: Send + Sync + 'static {
+    async fn before_navigation(&self, _page: &Page, _url: &str) -> Result<()> {
+        Ok(())
+    }
+    async fn after_navigation(&self, _page: &Page, _response: Option<&Response>) -> Result<()> {
+        Ok(())
+    }
+    async fn before_action(&self, _page: &Page, _action: &str) -> Result<()> {
+        Ok(())
+    }
+    async fn after_action(&self, _page: &Page, _result: &ActionResult) -> Result<()> {
+        Ok(())
+    }
+    async fn on_page_created(&self, _page: &Page) -> Result<()> {
+        Ok(())
+    }
+    async fn on_page_closed(&self, _page: &Page) -> Result<()> {
+        Ok(())
+    }
+}
+
+/// What a plugin can register.
+pub struct PluginContext {
+    selectors: SelectorRegistry,
+    hooks: Vec<Arc<dyn LifecycleHook>>,
+}
+
+impl PluginContext {
+    pub fn register_selector_strategy(&mut self, strategy: Arc<dyn SelectorStrategy>) {
+        self.selectors.register(strategy);
+    }
+
+    pub fn register_lifecycle_hook(&mut self, hook: Arc<dyn LifecycleHook>) {
+        self.hooks.push(hook);
+    }
+}
+
+/// A plugin registered with `#[agito::plugin]`.
+pub struct PluginRegistration {
+    pub factory: fn() -> Arc<dyn Plugin>,
+}
+
+inventory::collect!(PluginRegistration);
+
+struct BuiltinSelectors;
+
+const BUILTIN_SELECTORS_ID: &str = "agito.builtin.selectors";
+
+#[async_trait]
+impl Plugin for BuiltinSelectors {
+    fn id(&self) -> &str {
+        BUILTIN_SELECTORS_ID
+    }
+    async fn on_loaded(&self, context: &mut PluginContext) -> Result<()> {
+        register_builtins(&context.selectors);
+        Ok(())
+    }
+}
+
+/// The plugins loaded into one context.
+pub(crate) struct PluginHost {
+    loaded: Vec<Arc<dyn Plugin>>,
+    selectors: SelectorRegistry,
+    hooks: Vec<Arc<dyn LifecycleHook>>,
+}
+
+impl PluginHost {
+    pub async fn load(configured: &[Arc<dyn Plugin>]) -> Result<Self> {
+        let mut context = PluginContext {
+            selectors: SelectorRegistry::default(),
+            hooks: Vec::new(),
+        };
+        let builtin: Arc<dyn Plugin> = Arc::new(BuiltinSelectors);
+        // A failing built-in is a bug in agito, so it propagates.
+        builtin.on_loaded(&mut context).await?;
+        let mut loaded = vec![builtin];
+        let mut seen = std::collections::HashSet::from([BUILTIN_SELECTORS_ID.to_owned()]);
+        let discovered = inventory::iter::<PluginRegistration>
+            .into_iter()
+            .map(|r| (r.factory)());
+        for plugin in configured.iter().cloned().chain(discovered) {
+            if !seen.insert(plugin.id().to_owned()) {
+                continue;
+            }
+            match plugin.on_loaded(&mut context).await {
+                Ok(()) => loaded.push(plugin),
+                Err(e) => {
+                    tracing::warn!(plugin = plugin.id(), error = %e, "plugin failed to load; skipping it")
+                }
+            }
+        }
+        Ok(Self {
+            loaded,
+            selectors: context.selectors,
+            hooks: context.hooks,
+        })
+    }
+
+    pub fn selectors(&self) -> SelectorRegistry {
+        self.selectors.clone()
+    }
+
+    pub fn hooks(&self) -> Vec<Arc<dyn LifecycleHook>> {
+        self.hooks.clone()
+    }
+
+    pub async fn unload(&self) {
+        for plugin in self.loaded.iter().rev() {
+            if let Err(e) = plugin.on_unloaded().await {
+                tracing::warn!(plugin = plugin.id(), error = %e, "plugin failed to unload");
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct Counting(&'static str, Arc<AtomicUsize>);
+
+    #[async_trait]
+    impl Plugin for Counting {
+        fn id(&self) -> &str {
+            self.0
+        }
+        async fn on_loaded(&self, _context: &mut PluginContext) -> Result<()> {
+            self.1.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    struct Failing;
+
+    #[async_trait]
+    impl Plugin for Failing {
+        fn id(&self) -> &str {
+            "failing"
+        }
+        async fn on_loaded(&self, _context: &mut PluginContext) -> Result<()> {
+            Err(crate::Error::other("nope"))
+        }
+    }
+
+    #[tokio::test]
+    async fn builtins_load_first_and_duplicates_are_skipped() {
+        let count = Arc::new(AtomicUsize::new(0));
+        let plugins: Vec<Arc<dyn Plugin>> = vec![
+            Arc::new(Counting("p", count.clone())),
+            Arc::new(Counting("p", count.clone())),
+            Arc::new(Counting(BUILTIN_SELECTORS_ID, count.clone())),
+            Arc::new(Failing),
+        ];
+        let host = PluginHost::load(&plugins).await.unwrap();
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+        assert!(host.selectors().get("css").is_some());
+        assert!(host.selectors().get("ROLE").is_some());
+        assert_eq!(host.loaded.len(), 2);
+        assert_eq!(host.selectors().by_priority()[0].name(), "data-testid");
+    }
+}

@@ -18,7 +18,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy --workspace --all-targets --features agito/integration,agito-samples/integration -- -D warnings
       - name: Generated CDP bindings are current
         run: cargo xtask codegen --check
 
@@ -34,7 +34,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
 
-  live-chrome:
+  integration:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,6 +42,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: browser-actions/setup-chrome@v1
         id: chrome
-      - run: cargo test -p agito --test live_transport -- --ignored
+      - name: Browser tests
+        run: cargo test -p agito -p agito-samples --features agito/integration,agito-samples/integration
+        env:
+          AGITO_EXECUTABLE_PATH: ${{ steps.chrome.outputs.chrome-path }}
+      - name: Raw transport smoke test
+        run: cargo test -p agito --test live_transport -- --ignored
         env:
           AGITO_CHROME: ${{ steps.chrome.outputs.chrome-path }}
