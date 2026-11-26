@@ -1,0 +1,16 @@
+[package]
+name = "agito-protocol"
+description = "Chrome DevTools Protocol types for agito, generated from the protocol definitions"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+keywords = ["cdp", "devtools", "chrome", "protocol"]
+categories = ["api-bindings", "web-programming"]
+# The JSON is only read by `cargo xtask codegen`; the generated code is checked in.
+exclude = ["protocol/"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

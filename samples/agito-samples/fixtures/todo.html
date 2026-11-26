@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head><title>Todo App</title></head>
+<body>
+    <h1>Todo App</h1>
+    <div>
+        <input id="new-todo" placeholder="What needs to be done?" aria-label="New Todo" data-testid="new-todo-input" />
+        <button id="add-btn" onclick="addTodo()">Add</button>
+    </div>
+    <ul id="todo-list"></ul>
+    <div>
+        <span id="active-count" data-testid="active-count">0 items left</span>
+        <button id="clear-completed" onclick="clearCompleted()">Clear completed</button>
+    </div>
+    <script>
+        function addTodo() {
+            const input = document.getElementById('new-todo');
+            const text = input.value.trim();
+            if (!text) return;
+            const li = document.createElement('li');
+            li.className = 'todo-item';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.style.cssText = 'width:16px;height:16px;';
+            cb.onchange = function() {
+                li.classList.toggle('completed', cb.checked);
+                updateCount();
+            };
+            const span = document.createElement('span');
+            span.textContent = text;
+            li.appendChild(cb);
+            li.appendChild(span);
+            document.getElementById('todo-list').appendChild(li);
+            input.value = '';
+            updateCount();
+        }
+        function clearCompleted() {
+            document.querySelectorAll('.todo-item.completed').forEach(el => el.remove());
+            updateCount();
+        }
+        function updateCount() {
+            const active = document.querySelectorAll('.todo-item:not(.completed)').length;
+            document.getElementById('active-count').textContent = active + ' items left';
+        }
+    </script>
+</body>
+</html>

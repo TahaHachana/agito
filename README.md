@@ -1,1 +1,98 @@
 # agito
+
+Browser automation and testing for Rust. agito drives Chromium over the Chrome DevTools
+Protocol directly (a pipe to the browser it launches, or a WebSocket to one already running),
+with no driver process or Node.js sidecar in between. Its own selector strategies are
+registered through the same plugin API third-party code uses.
+
+agito is a Rust port of Motus, a .NET browser automation framework. It is early (0.1):
+Chromium-based browsers only, with no iframe support or network interception yet. See
+[docs/parity.md](https://github.com/TahaHachana/agito/blob/main/docs/parity.md) for what
+has been ported so far.
+
+## A test
+
+```rust
+use agito::{expect, Page};
+
+#[agito::test]
+async fn search_returns_results(page: Page) -> agito::Result<()> {
+    page.goto("https://example.com").await?;
+
+    page.locator("input[name='q']").fill("agito automation").await?;
+    page.get_by_role("button", Some("Search")).click().await?;
+
+    expect(&page).to_have_url("**/search**").await?;
+    expect(&page.locator(".results")).to_be_visible().await?;
+    Ok(())
+}
+```
+
+`#[agito::test]` runs under plain `cargo test`:
+
+- **Fixtures:** parameters of type `Page`, `BrowserContext` and `Browser` are filled in.
+- **Isolation:** each test gets a fresh context and page, in a browser shared by the whole test
+  binary.
+- **Retries:** a test whose browser disconnects underneath it is re-run once
+  (`#[agito::test(retries = N)]`). Failed assertions are never re-run.
+
+Actions wait for the element to be attached, visible, enabled, stable and not covered.
+`expect` assertions re-check until they pass or time out. Defaults are 30s for actions and
+10s for assertions.
+
+## Scripts
+
+```rust
+let browser = agito::launch(agito::LaunchOptions::default()).await?;
+let page = browser.new_page(Default::default()).await?;
+page.goto("https://example.com").await?;
+let png = page.screenshot(Default::default()).await?;
+browser.close().await?;
+```
+
+## Configuration
+
+Settings come from three places, each overriding the one before:
+
+1. `agito.config.json`, searched for upward from the working directory.
+2. `AGITO_*` environment variables.
+3. Options passed in code.
+
+```json
+{
+  "launch": { "headless": true, "channel": "chrome", "slowMo": 0, "executablePath": null },
+  "context": { "viewport": { "width": 1280, "height": 720 }, "locale": "en-US", "baseURL": "http://localhost:3000" },
+  "locator": { "timeout": 30000 },
+  "assertions": { "timeout": 10000 },
+  "failure": { "screenshot": true, "screenshotPath": "target/agito-failures" }
+}
+```
+
+Variables: `AGITO_HEADLESS`, `AGITO_CHANNEL`, `AGITO_SLOWMO`, `AGITO_LAUNCH_TIMEOUT`,
+`AGITO_EXECUTABLE_PATH`, `AGITO_LOCALE`, `AGITO_COLOR_SCHEME`, `AGITO_IGNORE_HTTPS_ERRORS`,
+`AGITO_BASE_URL`, `AGITO_LOCATOR_TIMEOUT`, `AGITO_ASSERTIONS_TIMEOUT`,
+`AGITO_FAILURES_SCREENSHOT`, `AGITO_FAILURES_SCREENSHOT_PATH`, `AGITO_MAX_CONTEXTS`.
+
+## Workspace
+
+| Crate | What it holds |
+|---|---|
+| `crates/agito` | The engine: launcher, transport, browser/context/page, locators, input, selectors, plugins, `expect`, test harness |
+| `crates/agito-macros` | `#[agito::test]` and `#[agito::plugin]` |
+| `crates/agito-protocol` | CDP bindings generated from the vendored protocol JSON |
+| `samples/agito-samples` | Example page object and tests, ported from Motus.Samples |
+| `xtask` | Developer tasks: `cargo xtask codegen` |
+
+## Development
+
+```bash
+cargo test --workspace                     # unit tests, no browser needed
+cargo test -p agito -p agito-samples \
+  --features agito/integration,agito-samples/integration   # drives a real Chrome/Chromium
+cargo xtask codegen [--check]              # regenerate (or verify) the CDP bindings
+cargo run -p agito --example screenshot -- https://example.com shot.png
+```
+
+## License
+
+MIT

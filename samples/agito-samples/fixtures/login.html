@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head><title>Login</title></head>
+<body>
+    <h1>Login</h1>
+    <form id="login-form" onsubmit="handleSubmit(event)">
+        <div>
+            <label for="email">Email</label>
+            <input id="email" type="email" placeholder="you@example.com" />
+        </div>
+        <div>
+            <label for="password">Password</label>
+            <input id="password" type="password" placeholder="Enter password" />
+        </div>
+        <div>
+            <input id="remember" type="checkbox" style="width:20px; height:20px;" />
+            <label for="remember">Remember me</label>
+        </div>
+        <div>
+            <label for="role">Role</label>
+            <select id="role">
+                <option value="">-- Select --</option>
+                <option value="admin">Admin</option>
+                <option value="user">User</option>
+                <option value="guest">Guest</option>
+            </select>
+        </div>
+        <button type="submit">Sign In</button>
+        <div id="feedback" style="display:none; color:green;"></div>
+    </form>
+    <script>
+        function handleSubmit(e) {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const feedback = document.getElementById('feedback');
+            feedback.textContent = 'Welcome, ' + email + '!';
+            feedback.style.display = 'block';
+        }
+    </script>
+</body>
+</html>
