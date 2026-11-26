@@ -1,0 +1,29 @@
+[package]
+name = "agito"
+description = "Extensible browser automation and testing for Rust, speaking CDP and WebDriver BiDi directly"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+# Fake sockets and protocol helpers for testing code built on agito without a browser.
+testing = []
+
+[dependencies]
+agito-protocol = { workspace = true }
+async-trait = "0.1"
+bitflags = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+agito = { path = ".", features = ["testing"] }
+tokio = { workspace = true, features = ["test-util"] }
