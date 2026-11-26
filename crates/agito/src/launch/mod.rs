@@ -38,6 +38,11 @@ pub struct LaunchOptions {
     /// A profile directory to use; a temporary one is created (and removed) otherwise.
     pub user_data_dir: Option<PathBuf>,
     pub downloads_path: Option<PathBuf>,
+    /// Run Chromium with its sandbox. Off by default, as in Playwright: CI machines,
+    /// containers and browsers outside their packaged install path often cannot start a
+    /// sandbox (Ubuntu 23.10+ restricts the user namespaces it needs), and Chromium refuses
+    /// to start rather than run without one.
+    pub chromium_sandbox: bool,
     /// Plugins to load into every context, in addition to `#[agito::plugin]` registrations.
     pub plugins: Vec<Arc<dyn Plugin>>,
 }
@@ -69,6 +74,7 @@ impl Default for LaunchOptions {
             timeout: Duration::from_millis(c.timeout.unwrap_or(30_000)),
             user_data_dir: None,
             downloads_path: None,
+            chromium_sandbox: c.chromium_sandbox.unwrap_or(false),
             plugins: Vec::new(),
         }
     }
@@ -267,7 +273,14 @@ fn with_output(error: Error, output: &OutputTail) -> Error {
     if tail.is_empty() {
         return error;
     }
-    Error::other(format!("{error}{tail}"))
+    let mut message = format!("{error}{tail}");
+    if tail.contains("sandbox") {
+        message.push_str(
+            "\nChromium could not start its sandbox. Launch without it (chromium_sandbox: false, \
+             AGITO_CHROMIUM_SANDBOX=0) or set the sandbox up for this machine.",
+        );
+    }
+    Error::other(message)
 }
 
 fn temp_profile_dir() -> PathBuf {

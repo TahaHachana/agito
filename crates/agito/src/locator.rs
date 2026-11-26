@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use crate::error::{Error, ErrorKind, Result};
+use crate::frame::{Frame, FrameLocator, content_frame_id};
 use crate::handles::{BoundingBox, ElementHandle, call_function, decode_value};
 use crate::input::ClickOptions;
 use crate::page::Page;
@@ -103,10 +104,22 @@ enum Step {
 #[must_use = "a locator does nothing until an action or query runs on it"]
 pub struct Locator {
     page: Page,
+    root: Root,
     selector: String,
     steps: Vec<Step>,
     pierce_shadow: bool,
     timeout: Option<Duration>,
+}
+
+/// Where a locator's base selector is resolved.
+#[derive(Clone)]
+enum Root {
+    /// The page's main frame.
+    Main,
+    /// A frame known by id.
+    Frame(String),
+    /// Whatever frame the `<iframe>` this locator points at currently holds.
+    Owner(Box<Locator>),
 }
 
 impl std::fmt::Debug for Locator {
@@ -117,8 +130,21 @@ impl std::fmt::Debug for Locator {
 
 impl Locator {
     pub(crate) fn new(page: Page, selector: &str) -> Self {
+        Self::rooted(page, Root::Main, selector)
+    }
+
+    pub(crate) fn in_frame(page: Page, frame_id: String, selector: &str) -> Self {
+        Self::rooted(page, Root::Frame(frame_id), selector)
+    }
+
+    pub(crate) fn in_frame_owner(owner: Locator, selector: &str) -> Self {
+        Self::rooted(owner.page.clone(), Root::Owner(Box::new(owner)), selector)
+    }
+
+    fn rooted(page: Page, root: Root, selector: &str) -> Self {
         Self {
             page,
+            root,
             selector: selector.to_owned(),
             steps: Vec::new(),
             pierce_shadow: true,
@@ -138,7 +164,12 @@ impl Locator {
 
     /// A readable description including chained steps, for messages.
     pub fn description(&self) -> String {
-        let mut s = self.selector.clone();
+        let mut s = match &self.root {
+            Root::Main => String::new(),
+            Root::Frame(id) => format!("frame[{id}] >> "),
+            Root::Owner(owner) => format!("{} >> content-frame >> ", owner.description()),
+        };
+        s.push_str(&self.selector);
         for step in &self.steps {
             match step {
                 Step::Child(css) => s.push_str(&format!(" >> {css}")),
@@ -155,6 +186,49 @@ impl Locator {
         let mut next = self.clone();
         next.steps.push(step);
         next
+    }
+
+    /// Locates elements inside the `<iframe>` this locator points at.
+    pub fn content_frame(&self) -> FrameLocator {
+        FrameLocator::new(self.clone())
+    }
+
+    /// The frame this locator's selector is resolved in. Boxed because a frame locator
+    /// nests locators, so resolution recurses.
+    fn resolve_frame(&self) -> std::pin::Pin<Box<dyn Future<Output = Result<Frame>> + Send + '_>> {
+        Box::pin(async move {
+            match &self.root {
+                Root::Main => Ok(self.page.main_frame()),
+                Root::Frame(id) => self.page.frame_by_id(id).ok_or_else(|| {
+                    ErrorKind::Evaluation {
+                        message: format!("Frame {id} was detached from the page."),
+                    }
+                    .into()
+                }),
+                Root::Owner(owner) => owner.content_frame_now().await,
+            }
+        })
+    }
+
+    /// The frame held by the `<iframe>` this locator points at right now.
+    pub(crate) async fn content_frame_now(&self) -> Result<Frame> {
+        let handle = self.resolve_now().await?;
+        let frame_id = content_frame_id(&handle).await?.ok_or_else(|| {
+            Error::invalid_argument(format!(
+                "'{}' is not an <iframe> or <frame>, so it holds no frame.",
+                self.description()
+            ))
+        })?;
+        // An out-of-process iframe is known to the page a moment after its element exists.
+        self.page.frame_by_id(&frame_id).ok_or_else(|| {
+            ErrorKind::Evaluation {
+                message: format!(
+                    "The frame inside '{}' is not attached yet.",
+                    self.description()
+                ),
+            }
+            .into()
+        })
     }
 
     /// The first match.
@@ -237,10 +311,11 @@ impl Locator {
                     "No selector strategy registered for prefix: {prefix}"
                 ))
             })?;
+        let frame = self.resolve_frame().await?;
         let mut handles = strategy
-            .resolve(expression, &self.page, self.pierce_shadow)
+            .resolve(expression, &frame, self.pierce_shadow)
             .await?;
-        let session = self.page.session();
+        let session = &frame.session();
         for step in &self.steps {
             if handles.is_empty() {
                 break;
@@ -276,7 +351,7 @@ impl Locator {
                             walked.push(ElementHandle::new(session.clone(), id));
                         }
                     }
-                    dedupe(walked, &self.page).await?
+                    dedupe(walked, session).await?
                 }
                 Step::Child(css) => {
                     let sel = Value::from(css.as_str()).to_string();
@@ -292,7 +367,7 @@ impl Locator {
                                 .await?;
                         found.extend(crate::handles::array_to_handles(session, array).await?);
                     }
-                    let found = dedupe(found, &self.page).await?;
+                    let found = dedupe(found, session).await?;
                     if found.is_empty() {
                         return Ok((
                             found,
@@ -328,7 +403,7 @@ impl Locator {
         args: &[Value],
     ) -> Result<T> {
         let result = call_function(
-            self.page.session(),
+            &handle.session,
             handle.object_id(),
             function,
             args,
@@ -406,6 +481,10 @@ impl Locator {
         }
         if checks.scroll {
             self.eval::<bool>(&handle, SCROLL_INTO_VIEW, &[]).await?;
+            let frame = self.resolve_frame().await?;
+            if !frame.is_main() {
+                frame.scroll_into_view(SCROLL_INTO_VIEW).await?;
+            }
         }
         if checks.stable {
             let drift: f64 = self.eval(&handle, MEASURE_DRIFT, &[]).await?;
@@ -465,7 +544,9 @@ impl Locator {
             .ok_or_else(|| ErrorKind::Evaluation {
                 message: "Element has zero size bounding box.".into(),
             })?;
-        Ok(bbox.center())
+        let (x, y) = bbox.center();
+        let (ox, oy) = self.resolve_frame().await?.origin().await?;
+        Ok((x + ox, y + oy))
     }
 
     /// Clicks the element's center.
@@ -713,7 +794,13 @@ impl Locator {
 
     /// The element's box, or `None` if it has no size.
     pub async fn bounding_box(&self) -> Result<Option<BoundingBox>> {
-        self.attached().await?.bounding_box().await
+        let Some(mut bbox) = self.attached().await?.bounding_box().await? else {
+            return Ok(None);
+        };
+        let (ox, oy) = self.resolve_frame().await?.origin().await?;
+        bbox.x += ox;
+        bbox.y += oy;
+        Ok(Some(bbox))
     }
 
     /// Calls a function with the element as `this`.
@@ -844,15 +931,17 @@ fn pick(handles: &[ElementHandle], n: i64) -> Option<ElementHandle> {
 }
 
 /// Removes handles pointing at the same DOM node, keeping the first.
-async fn dedupe(handles: Vec<ElementHandle>, page: &Page) -> Result<Vec<ElementHandle>> {
+async fn dedupe(
+    handles: Vec<ElementHandle>,
+    session: &std::sync::Arc<dyn crate::transport::Session>,
+) -> Result<Vec<ElementHandle>> {
     if handles.len() <= 1 {
         return Ok(handles);
     }
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::with_capacity(handles.len());
     for h in handles {
-        let node = page
-            .session()
+        let node = session
             .send(&agito_protocol::cdp::dom::DescribeNodeParams {
                 object_id: Some(h.object_id().to_owned()),
                 ..Default::default()

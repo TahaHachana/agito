@@ -27,6 +27,7 @@ pub struct LaunchConfig {
     pub slow_mo: Option<u64>,
     pub timeout: Option<u64>,
     pub executable_path: Option<String>,
+    pub chromium_sandbox: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -144,6 +145,9 @@ fn apply_env(c: &mut Config, env: &dyn Fn(&str) -> Option<String>) {
     }
     if let Some(v) = non_empty(env("AGITO_EXECUTABLE_PATH")) {
         c.launch.executable_path = Some(v);
+    }
+    if let Some(v) = parse_bool(env("AGITO_CHROMIUM_SANDBOX")) {
+        c.launch.chromium_sandbox = Some(v);
     }
     if let Some(v) = non_empty(env("AGITO_LOCALE")) {
         c.context.locale = Some(v);

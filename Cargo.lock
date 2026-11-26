@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "agito"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "agito",
  "agito-macros",
@@ -26,7 +26,7 @@ dependencies = [
 
 [[package]]
 name = "agito-macros"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -35,7 +35,7 @@ dependencies = [
 
 [[package]]
 name = "agito-protocol"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",

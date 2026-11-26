@@ -135,26 +135,6 @@ pub(crate) async fn call_function(
     Ok(result.result)
 }
 
-/// `Runtime.evaluate` in the page's main world.
-pub(crate) async fn evaluate_expression(
-    session: &Arc<dyn Session>,
-    expression: &str,
-    return_by_value: bool,
-) -> Result<runtime::RemoteObject> {
-    let result = session
-        .send(&runtime::EvaluateParams {
-            expression: expression.to_owned(),
-            return_by_value: Some(return_by_value),
-            await_promise: Some(true),
-            ..Default::default()
-        })
-        .await?;
-    if let Some(details) = result.exception_details {
-        return Err(evaluation_error(&details));
-    }
-    Ok(result.result)
-}
-
 /// Splits a remote array of elements into handles.
 pub(crate) async fn array_to_handles(
     session: &Arc<dyn Session>,

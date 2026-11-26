@@ -19,6 +19,8 @@ async fn chrome_answers_over_websocket() {
             "--remote-debugging-port=0",
             "--no-first-run",
             "--no-default-browser-check",
+            // CI runners cannot start Chromium's sandbox for a browser outside its install path.
+            "--no-sandbox",
         ])
         .arg(format!("--user-data-dir={}", profile.display()))
         .arg("about:blank")
