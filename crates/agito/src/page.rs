@@ -1,4 +1,4 @@
-//! Pages: navigation, evaluation, screenshots, events and the entry points for locators.
+//! Pages: tabs, their frames, navigation, screenshots, events and input.
 
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
@@ -18,10 +18,10 @@ use tokio::task::JoinHandle;
 
 use crate::context::{BrowserContext, Viewport};
 use crate::error::{Error, ErrorKind, Result};
-use crate::handles::{decode_value, evaluate_expression, to_arg};
+use crate::frame::{Frame, FrameLocator};
 use crate::input::{Keyboard, Mouse};
 use crate::locator::Locator;
-use crate::transport::Session;
+use crate::transport::{Session, SessionRegistry};
 
 /// When a navigation counts as finished.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -38,7 +38,7 @@ pub enum WaitUntil {
 }
 
 impl WaitUntil {
-    fn lifecycle_name(self) -> Option<&'static str> {
+    pub(crate) fn lifecycle_name(self) -> Option<&'static str> {
         match self {
             WaitUntil::Load => Some("load"),
             WaitUntil::DomContentLoaded => Some("DOMContentLoaded"),
@@ -258,30 +258,53 @@ type ErrorHandler = Arc<dyn Fn(&str) + Send + Sync>;
 #[derive(Debug, Clone)]
 pub(crate) enum PageEvent {
     Lifecycle {
+        frame_id: String,
         loader_id: String,
         name: String,
     },
-    /// The main frame committed a document (`loader_id`), or moved within one (`None`).
+    /// A frame committed a document (`loader_id`), or moved within one (`None`).
     Navigated {
+        frame_id: String,
         url: String,
         loader_id: Option<String>,
+    },
+    /// A frame's default execution context is ready; waiters re-check the context table.
+    ContextCreated,
+    FrameDetached {
+        frame_id: String,
     },
     Closed,
 }
 
+/// What the page knows about one frame.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct FrameData {
+    pub parent_id: Option<String>,
+    pub name: String,
+    pub url: String,
+    pub loader_id: Option<String>,
+    /// The session that owns the frame: `None` for the page's own session, or the session of
+    /// the out-of-process iframe target it lives in.
+    pub session_id: Option<String>,
+}
+
 #[derive(Default)]
-struct PageState {
-    main_frame_id: String,
-    url: String,
-    /// The main frame's current document.
-    loader_id: Option<String>,
+pub(crate) struct PageState {
+    pub main_frame_id: String,
+    pub frames: HashMap<String, FrameData>,
+    /// Attach order of frames, so listings come out in document-ish order.
+    pub frame_order: Vec<String>,
+    /// Default-world execution context per frame: (context id, owning session id).
+    pub contexts: HashMap<String, (i64, Option<String>)>,
     /// Lifecycle events seen per document, newest documents last.
     lifecycle: Vec<(String, HashSet<String>)>,
     document_responses: HashMap<String, Response>,
+    /// Sessions of out-of-process iframes attached to this page.
+    pub child_sessions: HashMap<String, Arc<dyn Session>>,
 }
 
 impl PageState {
-    fn reached(&self, loader_id: &str, name: &str) -> bool {
+    pub(crate) fn reached(&self, loader_id: &str, name: &str) -> bool {
         self.lifecycle
             .iter()
             .any(|(l, names)| l == loader_id && names.contains(name))
@@ -293,13 +316,46 @@ impl PageState {
                 names.insert(name.to_owned());
             }
             None => {
-                if self.lifecycle.len() == 16 {
+                if self.lifecycle.len() == 64 {
                     self.lifecycle.remove(0);
                 }
                 self.lifecycle
                     .push((loader_id.to_owned(), HashSet::from([name.to_owned()])));
             }
         }
+    }
+
+    fn frame_mut(&mut self, id: &str) -> &mut FrameData {
+        if !self.frames.contains_key(id) {
+            self.frame_order.push(id.to_owned());
+        }
+        self.frames.entry(id.to_owned()).or_default()
+    }
+
+    /// Removes a frame and its descendants; returns the ids removed.
+    fn remove_frame(&mut self, id: &str) -> Vec<String> {
+        let mut removed = vec![id.to_owned()];
+        let mut i = 0;
+        while i < removed.len() {
+            let parent = removed[i].clone();
+            removed.extend(
+                self.frames
+                    .iter()
+                    .filter(|(_, f)| f.parent_id.as_deref() == Some(parent.as_str()))
+                    .map(|(k, _)| k.clone()),
+            );
+            i += 1;
+        }
+        for r in &removed {
+            self.frames.remove(r);
+            self.contexts.remove(r);
+        }
+        self.frame_order.retain(|f| !removed.contains(f));
+        removed
+    }
+
+    pub(crate) fn take_response(&mut self, loader_id: &str) -> Option<Response> {
+        self.document_responses.remove(loader_id)
     }
 }
 
@@ -313,15 +369,15 @@ pub(crate) struct PageInner {
     pub context: BrowserContext,
     pub session: Arc<dyn Session>,
     target_id: String,
-    state: Mutex<PageState>,
-    events: broadcast::Sender<PageEvent>,
+    pub(crate) state: Mutex<PageState>,
+    pub(crate) events: broadcast::Sender<PageEvent>,
     console_handlers: Mutex<Vec<ConsoleHandler>>,
     error_handlers: Mutex<Vec<ErrorHandler>>,
     dialog_handlers: Mutex<Vec<DialogHandler>>,
     mouse: Mouse,
     keyboard: Keyboard,
     closed: AtomicBool,
-    pump: Mutex<Option<JoinHandle<()>>>,
+    pumps: Mutex<Vec<JoinHandle<()>>>,
 }
 
 impl PageInner {
@@ -331,16 +387,32 @@ impl PageInner {
         }
         let _ = self.events.send(PageEvent::Closed);
         self.session.cleanup_subscriptions();
+        let children: Vec<_> = self.state.lock().unwrap().child_sessions.drain().collect();
+        for (id, child) in children {
+            child.cleanup_subscriptions();
+            self.context.browser().registry().remove_session(&id);
+        }
     }
 
     pub(crate) fn is_closed(&self) -> bool {
         self.closed.load(Ordering::SeqCst)
     }
+
+    /// The session that owns `frame_id`.
+    pub(crate) fn session_for(&self, frame_id: &str) -> Arc<dyn Session> {
+        let state = self.state.lock().unwrap();
+        state
+            .frames
+            .get(frame_id)
+            .and_then(|f| f.session_id.as_ref())
+            .and_then(|s| state.child_sessions.get(s).cloned())
+            .unwrap_or_else(|| self.session.clone())
+    }
 }
 
 impl Drop for PageInner {
     fn drop(&mut self) {
-        if let Some(pump) = self.pump.get_mut().unwrap().take() {
+        for pump in self.pumps.get_mut().unwrap().drain(..) {
             pump.abort();
         }
     }
@@ -348,14 +420,24 @@ impl Drop for PageInner {
 
 const PAGE_EVENTS: &[&str] = &[
     "Page.lifecycleEvent",
+    "Page.frameAttached",
+    "Page.frameDetached",
     "Page.frameNavigated",
     "Page.navigatedWithinDocument",
     "Page.javascriptDialogOpening",
+    "Runtime.executionContextCreated",
+    "Runtime.executionContextDestroyed",
+    "Runtime.executionContextsCleared",
     "Runtime.consoleAPICalled",
     "Runtime.exceptionThrown",
     "Network.responseReceived",
+    "Target.attachedToTarget",
+    "Target.detachedFromTarget",
     "Inspector.targetCrashed",
 ];
+
+/// Out-of-process iframes show up as targets of this type.
+const IFRAME_TARGET: &str = "iframe";
 
 impl Page {
     pub(crate) fn from_inner(inner: Arc<PageInner>) -> Self {
@@ -380,20 +462,11 @@ impl Page {
             mouse: Mouse::new(session.clone()),
             keyboard: Keyboard::new(session.clone()),
             closed: AtomicBool::new(false),
-            pump: Mutex::new(None),
+            pumps: Mutex::new(Vec::new()),
         });
-        // Subscribe before enabling domains so nothing they announce is missed.
-        let stream = session.subscribe(PAGE_EVENTS);
-        let pump = tokio::spawn(event_pump(Arc::downgrade(&inner), stream));
-        *inner.pump.lock().unwrap() = Some(pump);
         let page = Page { inner };
-
-        session.send(&cdp_page::EnableParams::default()).await?;
-        session
-            .send(&cdp_page::SetLifecycleEventsEnabledParams { enabled: true })
-            .await?;
-        session.send(&runtime::EnableParams::default()).await?;
-        session.send(&network::EnableParams::default()).await?;
+        page.start_pump(session.clone(), None);
+        enable_session(&session).await?;
 
         let options = page.inner.context.options().clone();
         if let Some(viewport) = options.viewport {
@@ -472,19 +545,30 @@ impl Page {
         {
             let mut state = page.inner.state.lock().unwrap();
             state.main_frame_id = tree.frame_tree.frame.id.clone();
-            state.url = tree.frame_tree.frame.url.clone();
-            let loader = tree.frame_tree.frame.loader_id.clone();
-            if state.loader_id.is_none() {
-                state.loader_id = Some(loader.clone());
-            }
+            record_tree(&mut state, &tree.frame_tree, None);
             // A new tab's initial about:blank finished loading before lifecycle events were on.
+            let loader = tree.frame_tree.frame.loader_id.clone();
             if !state.lifecycle.iter().any(|(l, _)| *l == loader) {
                 for name in ["DOMContentLoaded", "load", "networkIdle"] {
                     state.record(&loader, name);
                 }
             }
         }
+        // Out-of-process iframes attach as targets; flatten them onto this connection.
+        attach_iframes(&session).await?;
         Ok(page)
+    }
+
+    fn start_pump(&self, session: Arc<dyn Session>, child_session_id: Option<String>) {
+        // Subscribe before enabling domains so nothing they announce is missed.
+        let stream = session.subscribe(PAGE_EVENTS);
+        let pump = tokio::spawn(event_pump(
+            Arc::downgrade(&self.inner),
+            session,
+            child_session_id,
+            stream,
+        ));
+        self.inner.pumps.lock().unwrap().push(pump);
     }
 
     /// The context this page belongs to.
@@ -497,13 +581,61 @@ impl Page {
         &self.inner.target_id
     }
 
-    pub(crate) fn session(&self) -> &Arc<dyn Session> {
-        &self.inner.session
+    /// The top-level frame.
+    pub fn main_frame(&self) -> Frame {
+        let id = self.inner.state.lock().unwrap().main_frame_id.clone();
+        Frame::new(self.clone(), id)
+    }
+
+    /// Every frame attached to the page, the main frame first.
+    pub fn frames(&self) -> Vec<Frame> {
+        let state = self.inner.state.lock().unwrap();
+        let mut ids = vec![state.main_frame_id.clone()];
+        ids.extend(
+            state
+                .frame_order
+                .iter()
+                .filter(|id| **id != state.main_frame_id && state.frames.contains_key(*id))
+                .cloned(),
+        );
+        drop(state);
+        ids.into_iter()
+            .map(|id| Frame::new(self.clone(), id))
+            .collect()
+    }
+
+    /// The first frame whose `name` attribute is `name`.
+    pub fn frame(&self, name: &str) -> Option<Frame> {
+        self.frames().into_iter().find(|f| f.name() == name)
+    }
+
+    /// The first frame whose URL matches.
+    pub fn frame_by_url(&self, matcher: impl Into<UrlMatcher>) -> Option<Frame> {
+        let matcher = matcher.into();
+        self.frames()
+            .into_iter()
+            .find(|f| matcher.matches(&f.url()))
+    }
+
+    pub(crate) fn frame_by_id(&self, id: &str) -> Option<Frame> {
+        self.inner
+            .state
+            .lock()
+            .unwrap()
+            .frames
+            .contains_key(id)
+            .then(|| Frame::new(self.clone(), id.to_owned()))
+    }
+
+    /// Locates elements inside the iframe matched by `selector`. The iframe is found again
+    /// each time, so the locator survives the iframe being reloaded or replaced.
+    pub fn frame_locator(&self, selector: &str) -> FrameLocator {
+        FrameLocator::new(self.locator(selector))
     }
 
     /// The main frame's current URL.
     pub fn url(&self) -> String {
-        self.inner.state.lock().unwrap().url.clone()
+        self.main_frame().url()
     }
 
     pub fn is_closed(&self) -> bool {
@@ -518,7 +650,7 @@ impl Page {
         &self.inner.keyboard
     }
 
-    fn ensure_open(&self) -> Result<()> {
+    pub(crate) fn ensure_open(&self) -> Result<()> {
         if self.is_closed() {
             return Err(Error::target_closed(
                 "page",
@@ -529,7 +661,7 @@ impl Page {
         Ok(())
     }
 
-    fn resolve_url(&self, url: &str) -> String {
+    pub(crate) fn resolve_url(&self, url: &str) -> String {
         let Some(base) = &self.inner.context.options().base_url else {
             return url.to_owned();
         };
@@ -548,67 +680,21 @@ impl Page {
         }
     }
 
-    fn navigation_timeout(&self, options: &NavigateOptions) -> Duration {
+    pub(crate) fn navigation_timeout(&self, options: &NavigateOptions) -> Duration {
         options
             .timeout
             .unwrap_or(self.inner.context.options().navigation_timeout)
     }
 
     /// Navigates to `url` and waits for the `load` event. Returns the main document's response,
-    /// or `None` for navigations without one (same-document, `about:blank`, `data:` URLs).
+    /// or `None` for navigations without one (same-document, `about:blank`).
     pub async fn goto(&self, url: &str) -> Result<Option<Response>> {
-        self.goto_with(url, NavigateOptions::default()).await
+        self.main_frame().goto(url).await
     }
 
     /// [`Page::goto`] with options.
     pub async fn goto_with(&self, url: &str, options: NavigateOptions) -> Result<Option<Response>> {
-        self.ensure_open()?;
-        let url = self.resolve_url(url);
-        self.fire_hooks_before_navigation(&url).await;
-        let timeout = self.navigation_timeout(&options);
-        let mut events = self.inner.events.subscribe();
-        let result = self
-            .inner
-            .session
-            .send(&cdp_page::NavigateParams {
-                url: url.clone(),
-                referrer: options.referer.clone(),
-                ..Default::default()
-            })
-            .await?;
-        if let Some(error) = result.error_text.filter(|e| !e.is_empty()) {
-            return Err(ErrorKind::Navigation {
-                url: url.clone(),
-                error_code: error.clone(),
-                page_url: self.url(),
-                message: format!("Navigation to {url} failed: {error}"),
-            }
-            .into());
-        }
-        let response = match result.loader_id {
-            // Same-document navigation: nothing more will load.
-            None => None,
-            Some(loader_id) => {
-                if let Some(name) = options.wait_until.lifecycle_name() {
-                    self.wait_for_lifecycle(
-                        &mut events,
-                        Some(loader_id.clone()),
-                        name,
-                        &url,
-                        timeout,
-                    )
-                    .await?;
-                }
-                self.inner
-                    .state
-                    .lock()
-                    .unwrap()
-                    .document_responses
-                    .remove(&loader_id)
-            }
-        };
-        self.fire_hooks_after_navigation(response.as_ref()).await;
-        Ok(response)
+        self.main_frame().goto_with(url, options).await
     }
 
     /// Reloads the page.
@@ -655,7 +741,7 @@ impl Page {
             .await
     }
 
-    /// Waits for a navigation started without knowing its document: the main frame's next
+    /// Waits for a main-frame navigation started without knowing its document: the next
     /// commit names it, then its lifecycle event finishes it. A page restored from the
     /// back-forward cache commits a document that has already loaded.
     async fn finish_history_navigation(
@@ -668,34 +754,31 @@ impl Page {
         let Some(name) = options.wait_until.lifecycle_name() else {
             return Ok(None);
         };
+        let main = self.inner.state.lock().unwrap().main_frame_id.clone();
         let deadline = Instant::now() + timeout;
         let loader_id = loop {
             match self.next_event(events, deadline).await {
                 Some(PageEvent::Navigated {
-                    loader_id: Some(l), ..
-                }) => break l,
-                // A navigation within the document (a hash change) loads nothing more.
-                Some(PageEvent::Navigated {
-                    loader_id: None, ..
-                }) => return Ok(None),
+                    frame_id,
+                    loader_id,
+                    ..
+                }) if frame_id == main => match loader_id {
+                    Some(l) => break l,
+                    // A navigation within the document (a hash change) loads nothing more.
+                    None => return Ok(None),
+                },
                 Some(PageEvent::Closed) => return Err(self.closed_error()),
                 Some(_) => continue,
                 None => return Err(navigation_timeout(url, timeout)),
             }
         };
         let remaining = deadline.saturating_duration_since(Instant::now());
-        self.wait_for_lifecycle(events, Some(loader_id.clone()), name, url, remaining)
+        self.wait_for_lifecycle(events, &loader_id, name, url, remaining)
             .await?;
-        Ok(self
-            .inner
-            .state
-            .lock()
-            .unwrap()
-            .document_responses
-            .remove(&loader_id))
+        Ok(self.inner.state.lock().unwrap().take_response(&loader_id))
     }
 
-    async fn next_event(
+    pub(crate) async fn next_event(
         &self,
         events: &mut broadcast::Receiver<PageEvent>,
         deadline: Instant,
@@ -711,20 +794,17 @@ impl Page {
         }
     }
 
-    async fn wait_for_lifecycle(
+    /// Waits until the document `loader_id` has fired lifecycle event `name`.
+    pub(crate) async fn wait_for_lifecycle(
         &self,
         events: &mut broadcast::Receiver<PageEvent>,
-        loader_id: Option<String>,
+        loader_id: &str,
         name: &str,
         url: &str,
         timeout: Duration,
     ) -> Result<()> {
-        {
-            let state = self.inner.state.lock().unwrap();
-            let wanted = loader_id.as_ref().or(state.loader_id.as_ref());
-            if wanted.is_some_and(|l| state.reached(l, name)) {
-                return Ok(());
-            }
+        if self.inner.state.lock().unwrap().reached(loader_id, name) {
+            return Ok(());
         }
         let deadline = Instant::now() + timeout;
         loop {
@@ -732,25 +812,16 @@ impl Page {
                 Some(PageEvent::Lifecycle {
                     loader_id: l,
                     name: n,
-                }) => {
-                    let current = self.inner.state.lock().unwrap().loader_id.clone();
-                    if n == name
-                        && loader_id
-                            .as_ref()
-                            .or(current.as_ref())
-                            .is_none_or(|want| *want == l)
-                    {
-                        return Ok(());
-                    }
-                }
+                    ..
+                }) if n == name && l == loader_id => return Ok(()),
                 Some(PageEvent::Closed) => return Err(self.closed_error()),
-                Some(PageEvent::Navigated { .. }) => {}
+                Some(_) => {}
                 None => return Err(navigation_timeout(url, timeout)),
             }
         }
     }
 
-    fn closed_error(&self) -> Error {
+    pub(crate) fn closed_error(&self) -> Error {
         Error::target_closed(
             "page",
             Some(&self.inner.target_id),
@@ -758,21 +829,13 @@ impl Page {
         )
     }
 
-    /// Waits until the current document has reached `state` (`load` by default).
+    /// Waits until the main frame's document has reached `state`.
     pub async fn wait_for_load_state(
         &self,
         state: WaitUntil,
         timeout: Option<Duration>,
     ) -> Result<()> {
-        self.ensure_open()?;
-        let Some(name) = state.lifecycle_name() else {
-            return Ok(());
-        };
-        let mut events = self.inner.events.subscribe();
-        let url = self.url();
-        let timeout = timeout.unwrap_or(self.inner.context.options().navigation_timeout);
-        self.wait_for_lifecycle(&mut events, None, name, &url, timeout)
-            .await
+        self.main_frame().wait_for_load_state(state, timeout).await
     }
 
     /// Waits until the main frame's URL matches.
@@ -781,35 +844,7 @@ impl Page {
         matcher: impl Into<UrlMatcher>,
         timeout: Option<Duration>,
     ) -> Result<()> {
-        let matcher = matcher.into();
-        let timeout = timeout.unwrap_or(self.inner.context.options().navigation_timeout);
-        let mut events = self.inner.events.subscribe();
-        let deadline = Instant::now() + timeout;
-        loop {
-            if matcher.matches(&self.url()) {
-                return Ok(());
-            }
-            let poll = Instant::now() + Duration::from_millis(100);
-            match self.next_event(&mut events, poll.min(deadline)).await {
-                Some(PageEvent::Navigated { url, .. }) if matcher.matches(&url) => return Ok(()),
-                Some(PageEvent::Closed) => return Err(self.closed_error()),
-                _ => {}
-            }
-            if Instant::now() >= deadline {
-                let last = self.url();
-                return Err(ErrorKind::WaitTimeout {
-                    condition: format!("URL match {}", matcher.describe()),
-                    timeout,
-                    last_evaluated_value: Some(last.clone()),
-                    message: format!(
-                        "wait_for_url timed out waiting for {} after {}ms. The URL was '{last}'.",
-                        matcher.describe(),
-                        timeout.as_millis()
-                    ),
-                }
-                .into());
-            }
-        }
+        self.main_frame().wait_for_url(matcher, timeout).await
     }
 
     /// Sleeps. Prefer waiting for a condition.
@@ -817,56 +852,34 @@ impl Page {
         tokio::time::sleep(duration).await;
     }
 
-    /// Evaluates a JavaScript expression in the page and decodes its value. A function
+    /// Evaluates a JavaScript expression in the main frame and decodes its value. A function
     /// expression (`() => document.title`) is called; a promise is awaited.
     pub async fn evaluate<T: DeserializeOwned>(&self, expression: &str) -> Result<T> {
-        self.ensure_open()?;
-        let wrapped = format!(
-            "(async () => {{ const __v = ({expression}); return typeof __v === 'function' ? await __v() : await __v; }})()"
-        );
-        let result = evaluate_expression(&self.inner.session, &wrapped, true).await?;
-        decode_value(result)
+        self.main_frame().evaluate(expression).await
     }
 
-    /// Calls a JavaScript function with one serializable argument.
+    /// Calls a JavaScript function in the main frame with one serializable argument.
     pub async fn evaluate_with<T: DeserializeOwned, A: Serialize>(
         &self,
         function: &str,
         arg: &A,
     ) -> Result<T> {
-        self.ensure_open()?;
-        let arg = to_arg(arg)?;
-        let expression = format!("(async () => await ({function})({arg}))()");
-        let result = evaluate_expression(&self.inner.session, &expression, true).await?;
-        decode_value(result)
+        self.main_frame().evaluate_with(function, arg).await
     }
 
     /// The document's title.
     pub async fn title(&self) -> Result<String> {
-        self.evaluate("document.title").await
+        self.main_frame().title().await
     }
 
     /// The full HTML of the document, doctype included.
     pub async fn content(&self) -> Result<String> {
-        self.evaluate(
-            "(() => { let s = ''; if (document.doctype) s = new XMLSerializer().serializeToString(document.doctype); \
-             if (document.documentElement) s += document.documentElement.outerHTML; return s; })",
-        )
-        .await
+        self.main_frame().content().await
     }
 
     /// Replaces the document with `html`.
     pub async fn set_content(&self, html: &str) -> Result<()> {
-        self.ensure_open()?;
-        let frame_id = self.inner.state.lock().unwrap().main_frame_id.clone();
-        self.inner
-            .session
-            .send(&cdp_page::SetDocumentContentParams {
-                frame_id,
-                html: html.to_owned(),
-            })
-            .await?;
-        Ok(())
+        self.main_frame().set_content(html).await
     }
 
     /// Adds a script that runs before the page's own scripts on every navigation.
@@ -962,7 +975,7 @@ impl Page {
         decode_base64(&result.data)
     }
 
-    /// Calls `handler` for every console message.
+    /// Calls `handler` for every console message, from any frame.
     pub fn on_console(&self, handler: impl Fn(&ConsoleMessage) + Send + Sync + 'static) {
         self.inner
             .console_handlers
@@ -1018,57 +1031,13 @@ impl Page {
         }
     }
 
-    /// A locator for `selector`. Selectors are CSS by default; a `prefix=` picks another
-    /// strategy (`text=`, `xpath=`, `role=`, `data-testid=`, ...).
+    /// A locator for `selector` in the main frame. Selectors are CSS by default; a `prefix=`
+    /// picks another strategy (`text=`, `xpath=`, `role=`, `data-testid=`, ...).
     pub fn locator(&self, selector: &str) -> Locator {
         Locator::new(self.clone(), selector)
     }
 
-    /// Elements with an ARIA role and, optionally, accessible name.
-    pub fn get_by_role(&self, role: &str, name: Option<&str>) -> Locator {
-        self.locator(&crate::selectors::role_selector(role, name))
-    }
-
-    /// Elements whose text contains `text` (case-insensitive). See [`Page::get_by_text_exact`].
-    pub fn get_by_text(&self, text: &str) -> Locator {
-        self.locator(&crate::selectors::get_by_text(text, false))
-    }
-
-    /// Elements whose whole text equals `text`.
-    pub fn get_by_text_exact(&self, text: &str) -> Locator {
-        self.locator(&crate::selectors::get_by_text(text, true))
-    }
-
-    /// Form controls by their label text.
-    pub fn get_by_label(&self, text: &str) -> Locator {
-        self.locator(&crate::selectors::get_by_label(text, false))
-    }
-
-    /// Inputs by placeholder text.
-    pub fn get_by_placeholder(&self, text: &str) -> Locator {
-        self.locator(&crate::selectors::get_by_attribute(
-            "placeholder",
-            text,
-            false,
-        ))
-    }
-
-    /// Elements by `title` attribute.
-    pub fn get_by_title(&self, text: &str) -> Locator {
-        self.locator(&crate::selectors::get_by_attribute("title", text, false))
-    }
-
-    /// Images by alt text.
-    pub fn get_by_alt_text(&self, text: &str) -> Locator {
-        self.locator(&crate::selectors::get_by_attribute("alt", text, false))
-    }
-
-    /// Elements by `data-testid`.
-    pub fn get_by_test_id(&self, test_id: &str) -> Locator {
-        self.locator(&crate::selectors::test_id_selector(test_id))
-    }
-
-    async fn fire_hooks_before_navigation(&self, url: &str) {
+    pub(crate) async fn fire_hooks_before_navigation(&self, url: &str) {
         for hook in &self.inner.context.inner.hooks {
             if let Err(e) = hook.before_navigation(self, url).await {
                 tracing::warn!(error = %e, "lifecycle hook before_navigation failed");
@@ -1076,7 +1045,7 @@ impl Page {
         }
     }
 
-    async fn fire_hooks_after_navigation(&self, response: Option<&Response>) {
+    pub(crate) async fn fire_hooks_after_navigation(&self, response: Option<&Response>) {
         for hook in &self.inner.context.inner.hooks {
             if let Err(e) = hook.after_navigation(self, response).await {
                 tracing::warn!(error = %e, "lifecycle hook after_navigation failed");
@@ -1084,6 +1053,8 @@ impl Page {
         }
     }
 }
+
+crate::frame::impl_get_by!(Page);
 
 impl std::fmt::Debug for Page {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1094,13 +1065,88 @@ impl std::fmt::Debug for Page {
     }
 }
 
+/// Turns on the domains a page or iframe session reports through.
+async fn enable_session(session: &Arc<dyn Session>) -> Result<()> {
+    session.send(&cdp_page::EnableParams::default()).await?;
+    session
+        .send(&cdp_page::SetLifecycleEventsEnabledParams { enabled: true })
+        .await?;
+    session.send(&runtime::EnableParams::default()).await?;
+    session.send(&network::EnableParams::default()).await?;
+    Ok(())
+}
+
+async fn attach_iframes(session: &Arc<dyn Session>) -> Result<()> {
+    session
+        .send(&target::SetAutoAttachParams {
+            auto_attach: true,
+            wait_for_debugger_on_start: false,
+            flatten: Some(true),
+            ..Default::default()
+        })
+        .await?;
+    Ok(())
+}
+
+fn record_tree(state: &mut PageState, node: &cdp_page::FrameTree, session_id: Option<&str>) {
+    let f = &node.frame;
+    let data = state.frame_mut(&f.id);
+    data.parent_id = f.parent_id.clone();
+    data.name = f.name.clone().unwrap_or_default();
+    data.url = f.url.clone();
+    data.loader_id = Some(f.loader_id.clone());
+    data.session_id = session_id.map(str::to_owned);
+    for child in node.child_frames.iter().flatten() {
+        record_tree(state, child, session_id);
+    }
+}
+
+/// Takes over an out-of-process iframe's session: tracks its frames and events.
+async fn adopt_iframe(page: Page, session_id: String, frame_id: String) {
+    let registry = page.inner.context.browser().registry().clone();
+    let session = registry.create_session(&session_id);
+    {
+        let mut state = page.inner.state.lock().unwrap();
+        state
+            .child_sessions
+            .insert(session_id.clone(), session.clone());
+        state.frame_mut(&frame_id).session_id = Some(session_id.clone());
+    }
+    page.start_pump(session.clone(), Some(session_id.clone()));
+    let setup = async {
+        enable_session(&session).await?;
+        attach_iframes(&session).await?;
+        let tree = session
+            .send(&cdp_page::GetFrameTreeParams::default())
+            .await?;
+        let mut state = page.inner.state.lock().unwrap();
+        // The iframe's own parent link is known to the page that owns it, not to the iframe.
+        let parent = state
+            .frames
+            .get(&frame_id)
+            .and_then(|f| f.parent_id.clone());
+        record_tree(&mut state, &tree.frame_tree, Some(&session_id));
+        if let Some(f) = state.frames.get_mut(&frame_id)
+            && f.parent_id.is_none()
+        {
+            f.parent_id = parent;
+        }
+        Ok::<_, Error>(())
+    };
+    if let Err(e) = setup.await
+        && !e.is_browser_lost()
+    {
+        tracing::warn!(frame = %frame_id, error = %e, "an out-of-process iframe could not be adopted");
+    }
+}
+
 fn decode_base64(data: &str) -> Result<Vec<u8>> {
     base64::engine::general_purpose::STANDARD
         .decode(data)
         .map_err(|e| Error::other(format!("the browser sent invalid base64: {e}")))
 }
 
-fn navigation_timeout(url: &str, timeout: Duration) -> Error {
+pub(crate) fn navigation_timeout(url: &str, timeout: Duration) -> Error {
     ErrorKind::NavigationTimeout {
         url: url.to_owned(),
         timeout,
@@ -1128,62 +1174,170 @@ fn console_text(args: &[runtime::RemoteObject]) -> String {
         .join(" ")
 }
 
-async fn event_pump(page: Weak<PageInner>, mut stream: crate::transport::EventStream) {
+/// Handles one session's events. `child` is the session id for an out-of-process iframe, or
+/// `None` for the page's own session (whose end means the page is gone).
+async fn event_pump(
+    page: Weak<PageInner>,
+    session: Arc<dyn Session>,
+    child: Option<String>,
+    mut stream: crate::transport::EventStream,
+) {
     while let Some(event) = stream.next().await {
-        let Some(page) = page.upgrade() else { return };
+        let Some(inner) = page.upgrade() else { return };
         let params = event.params;
         match event.method.as_str() {
             "Page.lifecycleEvent" => {
                 let Ok(e) = serde_json::from_value::<cdp_page::LifecycleEventEvent>(params) else {
                     continue;
                 };
-                let mut state = page.state.lock().unwrap();
-                if !state.main_frame_id.is_empty() && e.frame_id != state.main_frame_id {
-                    continue;
+                {
+                    let mut state = inner.state.lock().unwrap();
+                    if e.name == "init" {
+                        state.frame_mut(&e.frame_id).loader_id = Some(e.loader_id.clone());
+                    }
+                    state.record(&e.loader_id, &e.name);
                 }
-                if e.name == "init" {
-                    state.loader_id = Some(e.loader_id.clone());
-                }
-                state.record(&e.loader_id, &e.name);
-                drop(state);
-                let _ = page.events.send(PageEvent::Lifecycle {
+                let _ = inner.events.send(PageEvent::Lifecycle {
+                    frame_id: e.frame_id,
                     loader_id: e.loader_id,
                     name: e.name,
                 });
             }
-            "Page.frameNavigated" => {
-                let Some(frame) = params.get("frame") else {
+            "Page.frameAttached" => {
+                let (Some(id), Some(parent)) =
+                    (params["frameId"].as_str(), params["parentFrameId"].as_str())
+                else {
                     continue;
                 };
-                if frame.get("parentId").is_some() {
+                let mut state = inner.state.lock().unwrap();
+                let frame = state.frame_mut(id);
+                frame.parent_id = Some(parent.to_owned());
+                if frame.session_id.is_none() {
+                    frame.session_id = child.clone();
+                }
+            }
+            "Page.frameDetached" => {
+                let Some(id) = params["frameId"].as_str() else {
+                    continue;
+                };
+                // A frame moving into its own process detaches with "swap"; it lives on.
+                if params["reason"].as_str() == Some("swap") {
                     continue;
                 }
-                let url = frame["url"].as_str().unwrap_or_default().to_owned();
-                let loader_id = frame["loaderId"].as_str().map(str::to_owned);
-                {
-                    let mut state = page.state.lock().unwrap();
-                    if let Some(id) = frame["id"].as_str() {
-                        state.main_frame_id = id.to_owned();
-                    }
-                    state.url = url.clone();
-                    if loader_id.is_some() {
-                        state.loader_id = loader_id.clone();
-                    }
+                let removed = inner.state.lock().unwrap().remove_frame(id);
+                for frame_id in removed {
+                    let _ = inner.events.send(PageEvent::FrameDetached { frame_id });
                 }
-                let _ = page.events.send(PageEvent::Navigated { url, loader_id });
+            }
+            "Page.frameNavigated" => {
+                let Ok(e) = serde_json::from_value::<cdp_page::FrameNavigatedEvent>(params) else {
+                    continue;
+                };
+                let f = e.frame;
+                {
+                    let mut state = inner.state.lock().unwrap();
+                    if f.parent_id.is_none() && child.is_none() {
+                        state.main_frame_id = f.id.clone();
+                    }
+                    let data = state.frame_mut(&f.id);
+                    if f.parent_id.is_some() {
+                        data.parent_id = f.parent_id.clone();
+                    }
+                    data.name = f.name.clone().unwrap_or_default();
+                    data.url = f.url.clone();
+                    data.loader_id = Some(f.loader_id.clone());
+                    // The session that commits a frame's document is the one that owns it.
+                    data.session_id = child.clone();
+                }
+                let _ = inner.events.send(PageEvent::Navigated {
+                    frame_id: f.id,
+                    url: f.url,
+                    loader_id: Some(f.loader_id),
+                });
             }
             "Page.navigatedWithinDocument" => {
-                let mut state = page.state.lock().unwrap();
-                if params["frameId"].as_str() != Some(state.main_frame_id.as_str()) {
+                let (Some(id), Some(url)) = (params["frameId"].as_str(), params["url"].as_str())
+                else {
                     continue;
-                }
-                let url = params["url"].as_str().unwrap_or_default().to_owned();
-                state.url = url.clone();
-                drop(state);
-                let _ = page.events.send(PageEvent::Navigated {
-                    url,
+                };
+                inner.state.lock().unwrap().frame_mut(id).url = url.to_owned();
+                let _ = inner.events.send(PageEvent::Navigated {
+                    frame_id: id.to_owned(),
+                    url: url.to_owned(),
                     loader_id: None,
                 });
+            }
+            "Runtime.executionContextCreated" => {
+                let Ok(e) = serde_json::from_value::<runtime::ExecutionContextCreatedEvent>(params)
+                else {
+                    continue;
+                };
+                let aux = e.context.aux_data.unwrap_or(Value::Null);
+                let (Some(frame_id), true) = (
+                    aux["frameId"].as_str(),
+                    aux["isDefault"].as_bool().unwrap_or(false),
+                ) else {
+                    continue;
+                };
+                inner
+                    .state
+                    .lock()
+                    .unwrap()
+                    .contexts
+                    .insert(frame_id.to_owned(), (e.context.id, child.clone()));
+                let _ = inner.events.send(PageEvent::ContextCreated);
+            }
+            "Runtime.executionContextDestroyed" => {
+                let Some(id) = params["executionContextId"].as_i64() else {
+                    continue;
+                };
+                inner
+                    .state
+                    .lock()
+                    .unwrap()
+                    .contexts
+                    .retain(|_, (ctx, s)| !(*ctx == id && *s == child));
+            }
+            "Runtime.executionContextsCleared" => {
+                inner
+                    .state
+                    .lock()
+                    .unwrap()
+                    .contexts
+                    .retain(|_, (_, s)| *s != child);
+            }
+            "Target.attachedToTarget" => {
+                let Ok(e) = serde_json::from_value::<target::AttachedToTargetEvent>(params) else {
+                    continue;
+                };
+                if e.target_info.r#type == IFRAME_TARGET {
+                    // An out-of-process iframe's target id is its frame id.
+                    tokio::spawn(adopt_iframe(
+                        Page::from_inner(inner.clone()),
+                        e.session_id,
+                        e.target_info.target_id,
+                    ));
+                }
+            }
+            "Target.detachedFromTarget" => {
+                let Some(session_id) = params["sessionId"].as_str() else {
+                    continue;
+                };
+                let removed = {
+                    let mut state = inner.state.lock().unwrap();
+                    state
+                        .contexts
+                        .retain(|_, (_, s)| s.as_deref() != Some(session_id));
+                    state.child_sessions.remove(session_id)
+                };
+                if let Some(s) = removed {
+                    s.cleanup_subscriptions();
+                    inner
+                        .context
+                        .browser()
+                        .registry()
+                        .remove_session(session_id);
+                }
             }
             "Network.responseReceived" => {
                 let Ok(e) = serde_json::from_value::<network::ResponseReceivedEvent>(params) else {
@@ -1192,14 +1346,10 @@ async fn event_pump(page: Weak<PageInner>, mut stream: crate::transport::EventSt
                 if e.r#type != network::ResourceType::Document {
                     continue;
                 }
-                let mut state = page.state.lock().unwrap();
-                if e.frame_id
-                    .as_deref()
-                    .is_some_and(|f| f != state.main_frame_id)
-                {
-                    continue;
-                }
-                state
+                inner
+                    .state
+                    .lock()
+                    .unwrap()
                     .document_responses
                     .insert(e.loader_id, Response::from_cdp(e.response));
             }
@@ -1219,7 +1369,7 @@ async fn event_pump(page: Weak<PageInner>, mut stream: crate::transport::EventSt
                         .map(|a| a.value.clone().unwrap_or(Value::Null))
                         .collect(),
                 };
-                let handlers = page.console_handlers.lock().unwrap().clone();
+                let handlers = inner.console_handlers.lock().unwrap().clone();
                 for handler in handlers {
                     handler(&message);
                 }
@@ -1233,19 +1383,19 @@ async fn event_pump(page: Weak<PageInner>, mut stream: crate::transport::EventSt
                     .exception
                     .and_then(|x| x.description)
                     .unwrap_or(details.text);
-                let handlers = page.error_handlers.lock().unwrap().clone();
+                let handlers = inner.error_handlers.lock().unwrap().clone();
                 for handler in handlers {
                     handler(&text);
                 }
             }
             "Page.javascriptDialogOpening" => {
                 let dialog = Dialog {
-                    session: page.session.clone(),
+                    session: session.clone(),
                     kind: params["type"].as_str().unwrap_or("alert").to_owned(),
                     message: params["message"].as_str().unwrap_or_default().to_owned(),
                     default_prompt: params["defaultPrompt"].as_str().map(str::to_owned),
                 };
-                let handlers = page.dialog_handlers.lock().unwrap().clone();
+                let handlers = inner.dialog_handlers.lock().unwrap().clone();
                 if handlers.is_empty() {
                     tokio::spawn(async move {
                         let _ = dialog.dismiss().await;
@@ -1256,12 +1406,14 @@ async fn event_pump(page: Weak<PageInner>, mut stream: crate::transport::EventSt
                     }
                 }
             }
-            "Inspector.targetCrashed" => page.mark_closed(),
+            "Inspector.targetCrashed" if child.is_none() => inner.mark_closed(),
             _ => {}
         }
     }
-    if let Some(page) = page.upgrade() {
-        page.mark_closed();
+    if child.is_none()
+        && let Some(inner) = page.upgrade()
+    {
+        inner.mark_closed();
     }
 }
 
@@ -1292,5 +1444,21 @@ mod tests {
             "https://example.com/a?x"
         ));
         assert!(glob_matches("**/a.b?c=*", "http://h/a.b?c=1"));
+    }
+
+    #[test]
+    fn removing_a_frame_removes_its_descendants() {
+        let mut state = PageState::default();
+        state.frame_mut("main");
+        state.frame_mut("a").parent_id = Some("main".into());
+        state.frame_mut("a1").parent_id = Some("a".into());
+        state.frame_mut("b").parent_id = Some("main".into());
+        state.contexts.insert("a1".into(), (7, None));
+        let mut removed = state.remove_frame("a");
+        removed.sort();
+        assert_eq!(removed, ["a", "a1"]);
+        assert!(state.frames.contains_key("b"));
+        assert!(state.contexts.is_empty());
+        assert_eq!(state.frame_order, ["main", "b"]);
     }
 }

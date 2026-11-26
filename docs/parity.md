@@ -7,7 +7,7 @@ run real browser tests.
 |---|---|---|
 | 0 | Workspace, CI, CDP codegen (`xtask`), protocol crate | Done |
 | 1 | Transport: sockets (WebSocket, pipe), CDP connection, sessions, capabilities, fake socket | Done (protocol log pending) |
-| 2 | Launcher, browser finder, Browser/Context/Page, handles, input, config | MVP done (see gaps) |
+| 2 | Launcher, browser finder, Browser/Context/Page/Frame, handles, input, config | Done for Chromium (see gaps) |
 | 3 | Plugins, selectors, Locator + actionability, network, dialogs/downloads/file chooser | MVP done (see gaps) |
 | 4 | `expect` assertions, `#[agito::test]` harness, samples | MVP done (see gaps) |
 | 5 | Firefox / WebDriver BiDi | Not started |
@@ -31,6 +31,7 @@ run real browser tests.
 | `ILocator` / `ActionabilityChecker` | `Locator`: click, dblclick, hover, focus, fill, clear, type_text, press, check/uncheck, select_option, wait_for, queries, first/last/nth, filter_has_text, chained `locator` incl. `..` |
 | `IMouse`, `IKeyboard`, `KeyDefinitions` | `Mouse`, `Keyboard` (same US layout table) |
 | `IElementHandle` | `ElementHandle` |
+| `IFrame`, `IPage.MainFrame` / `Frames`, out-of-process iframe adoption, frame origins | `Frame` (`page.main_frame()`, `page.frames()`, `page.frame(name)`, `frame_by_url`), plus `FrameLocator` |
 | Selector strategies: css, xpath, text, data-testid, role, `_text`/`_label`/`_attr` | `selectors::*`, same prefixes and priorities |
 | `IPlugin`, `IPluginContext`, `ISelectorStrategy`, `ILifecycleHook` | `plugin::{Plugin, PluginContext, LifecycleHook}`, `selectors::SelectorStrategy` |
 | `[MotusPlugin]` + source-generated discovery | `#[agito::plugin]` + `inventory` |
@@ -42,7 +43,6 @@ run real browser tests.
 
 ## Known gaps in the MVP
 
-- **Frames:** iframes are not modeled. Locators and evaluation run in the main frame only.
 - **Network:** no request interception (`route`), request/response events, HAR or
   network-idle tracking beyond Chrome's `networkIdle` lifecycle event. `goto` does return the
   main document's response.
@@ -72,6 +72,17 @@ run real browser tests.
 - Chrome's "Session with given id not found" and "Target closed" errors count as a lost
   browser, so the harness retries them.
 - Profiles left by test binaries are swept on the next launch.
+
+- `page.frame_locator(selector)` / `locator.content_frame()` (Playwright-style) find the iframe
+  afresh on every use. Motus only offered frame objects, which go stale when an iframe is
+  replaced.
+- Selector strategies resolve against a `Frame` instead of a page
+  (`SelectorStrategy::resolve(&self, selector, frame: &Frame, pierce)`).
+- Elements in a child frame are clicked at page coordinates computed from each `<iframe>`'s
+  content box up the chain, for same-process and out-of-process frames alike. Motus only
+  offset out-of-process frames, relying on box models for the rest.
+- `frame.wait_for_load_state` falls back to `document.readyState` for a frame whose lifecycle
+  events were missed (an out-of-process iframe adopted after it loaded).
 
 ## Inherited as-is
 

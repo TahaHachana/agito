@@ -5,8 +5,8 @@ Protocol directly (a pipe to the browser it launches, or a WebSocket to one alre
 with no driver process or Node.js sidecar in between. Its own selector strategies are
 registered through the same plugin API third-party code uses.
 
-agito is a Rust port of Motus, a .NET browser automation framework. It is early (0.1):
-Chromium-based browsers only, with no iframe support or network interception yet. See
+agito is a Rust port of Motus, a .NET browser automation framework. It is early (0.2):
+Chromium-based browsers only, with no network interception yet. See
 [docs/parity.md](https://github.com/TahaHachana/agito/blob/main/docs/parity.md) for what
 has been ported so far.
 
@@ -39,6 +39,25 @@ async fn search_returns_results(page: Page) -> agito::Result<()> {
 Actions wait for the element to be attached, visible, enabled, stable and not covered.
 `expect` assertions re-check until they pass or time out. Defaults are 30s for actions and
 10s for assertions.
+
+## Iframes
+
+Same-origin and cross-origin (out-of-process) iframes work the same way:
+
+```rust
+// Found afresh each time, so it survives the iframe reloading.
+let checkout = page.frame_locator("iframe#payment");
+checkout.get_by_label("Card number").fill("4242 4242 4242 4242").await?;
+checkout.get_by_role("button", Some("Pay")).click().await?;
+expect(&checkout.locator(".status")).to_have_text("Paid").await?;
+
+// Or work with frame objects directly.
+for frame in page.frames() {
+    println!("{} {}", frame.name(), frame.url());
+}
+let ads = page.frame("ads").unwrap();
+let title: String = ads.evaluate("document.title").await?;
+```
 
 ## Scripts
 

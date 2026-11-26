@@ -10,8 +10,8 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::error::{Error, Result};
-use crate::handles::{ElementHandle, array_to_handles, evaluate_expression};
-use crate::page::Page;
+use crate::frame::Frame;
+use crate::handles::ElementHandle;
 use crate::transport::capabilities;
 
 /// Resolves selectors of one kind to elements.
@@ -25,12 +25,12 @@ pub trait SelectorStrategy: Send + Sync + 'static {
         0
     }
 
-    /// Every element in the page's main frame matching `selector` (the part after `prefix=`),
+    /// Every element in `frame` matching `selector` (the part after `prefix=`),
     /// in document order.
     async fn resolve(
         &self,
         selector: &str,
-        page: &Page,
+        frame: &Frame,
         pierce_shadow: bool,
     ) -> Result<Vec<ElementHandle>>;
 
@@ -97,10 +97,10 @@ fn js_string(s: &str) -> String {
     Value::from(s).to_string()
 }
 
-/// Evaluates an expression returning an array of elements and splits it into handles.
-pub async fn eval_to_handles(page: &Page, expression: &str) -> Result<Vec<ElementHandle>> {
-    let array = evaluate_expression(page.session(), expression, false).await?;
-    array_to_handles(page.session(), array).await
+/// Evaluates an expression returning an array of elements, in `frame`, and splits it into
+/// handles.
+pub async fn eval_to_handles(frame: &Frame, expression: &str) -> Result<Vec<ElementHandle>> {
+    frame.query_all(expression).await
 }
 
 /// `css=` and plain selectors.
@@ -117,7 +117,7 @@ impl SelectorStrategy for CssStrategy {
     async fn resolve(
         &self,
         selector: &str,
-        page: &Page,
+        frame: &Frame,
         pierce: bool,
     ) -> Result<Vec<ElementHandle>> {
         let sel = js_string(selector);
@@ -126,7 +126,7 @@ impl SelectorStrategy for CssStrategy {
         } else {
             format!("Array.from(document.querySelectorAll({sel}))")
         };
-        eval_to_handles(page, &js).await
+        eval_to_handles(frame, &js).await
     }
     async fn generate(&self, element: &ElementHandle) -> Result<Option<String>> {
         element
@@ -169,7 +169,7 @@ impl SelectorStrategy for XPathStrategy {
     async fn resolve(
         &self,
         selector: &str,
-        page: &Page,
+        frame: &Frame,
         _pierce: bool,
     ) -> Result<Vec<ElementHandle>> {
         let js = format!(
@@ -177,7 +177,7 @@ impl SelectorStrategy for XPathStrategy {
              var a = []; for (var i = 0; i < r.snapshotLength; i++) a.push(r.snapshotItem(i)); return a; }})()",
             js_string(selector)
         );
-        eval_to_handles(page, &js).await
+        eval_to_handles(frame, &js).await
     }
 }
 
@@ -195,7 +195,7 @@ impl SelectorStrategy for TextStrategy {
     async fn resolve(
         &self,
         selector: &str,
-        page: &Page,
+        frame: &Frame,
         pierce: bool,
     ) -> Result<Vec<ElementHandle>> {
         let exact = selector.len() >= 2 && selector.starts_with('"') && selector.ends_with('"');
@@ -228,7 +228,7 @@ impl SelectorStrategy for TextStrategy {
                  return {innermost}; }})()"
             )
         };
-        eval_to_handles(page, &js).await
+        eval_to_handles(frame, &js).await
     }
     async fn generate(&self, element: &ElementHandle) -> Result<Option<String>> {
         let text = element.text_content().await?.unwrap_or_default();
@@ -261,11 +261,11 @@ impl SelectorStrategy for TestIdStrategy {
     async fn resolve(
         &self,
         selector: &str,
-        page: &Page,
+        frame: &Frame,
         pierce: bool,
     ) -> Result<Vec<ElementHandle>> {
         let css = format!("[{}={}]", self.attribute, css_string(selector));
-        CssStrategy.resolve(&css, page, pierce).await
+        CssStrategy.resolve(&css, frame, pierce).await
     }
     async fn generate(&self, element: &ElementHandle) -> Result<Option<String>> {
         Ok(element
@@ -292,10 +292,10 @@ impl SelectorStrategy for RoleStrategy {
     async fn resolve(
         &self,
         selector: &str,
-        page: &Page,
+        frame: &Frame,
         _pierce: bool,
     ) -> Result<Vec<ElementHandle>> {
-        let session = page.session();
+        let session = &frame.session();
         capabilities::require_accessibility_tree(
             session.capabilities(),
             session.transport_description(),
@@ -310,7 +310,9 @@ impl SelectorStrategy for RoleStrategy {
                 .await?;
             self.enabled_sessions.lock().unwrap().insert(key);
         }
-        let root = evaluate_expression(session, "document.documentElement", false).await?;
+        let root = frame
+            .evaluate_raw("document.documentElement", false)
+            .await?;
         let Some(root_id) = root.object_id else {
             return Ok(Vec::new());
         };
@@ -419,7 +421,7 @@ impl SelectorStrategy for GetByStrategy {
     async fn resolve(
         &self,
         selector: &str,
-        page: &Page,
+        frame: &Frame,
         pierce: bool,
     ) -> Result<Vec<ElementHandle>> {
         let (attribute, text, exact) = parse_get_by(selector, self.kind == GetByKind::Attribute)?;
@@ -434,7 +436,7 @@ impl SelectorStrategy for GetByStrategy {
             js_string(attribute.as_deref().unwrap_or("")),
             js_string(&text)
         );
-        eval_to_handles(page, &js).await
+        eval_to_handles(frame, &js).await
     }
 }
 

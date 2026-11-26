@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use agito::handles::ElementHandle;
 use agito::plugin::{ActionResult, LifecycleHook, Plugin, PluginContext};
 use agito::selectors::{CssStrategy, SelectorStrategy};
-use agito::{Browser, Page, expect};
+use agito::{Browser, Frame, Page, expect};
 use async_trait::async_trait;
 
 /// `id=foo` selects `#foo`, built on the CSS strategy.
@@ -21,11 +21,11 @@ impl SelectorStrategy for IdStrategy {
     async fn resolve(
         &self,
         selector: &str,
-        page: &Page,
+        frame: &Frame,
         pierce: bool,
     ) -> agito::Result<Vec<ElementHandle>> {
         CssStrategy
-            .resolve(&format!("[id=\"{selector}\"]"), page, pierce)
+            .resolve(&format!("[id=\"{selector}\"]"), frame, pierce)
             .await
     }
 }
