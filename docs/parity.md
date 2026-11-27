@@ -44,12 +44,13 @@ run real browser tests.
 | `WaitForRequestAsync` / `WaitForResponseAsync`, network idle | `page.wait_for_request` / `wait_for_response` (eager), `page.wait_for_network_idle` |
 | `IRoute`, `RouteAsync` / `UnrouteAsync` on page and context | `network::Route` (`fulfill`, `continue_`, `abort`), `page.route` / `context.route`, `unroute(RouteId)`, `unroute_all` |
 | `HarRecorder`, `StartHarRecordingAsync` / `StopHarRecordingAsync` | `page.start_har` / `stop_har` / `stop_har_to` |
+| `IPage.Popup`, `IBrowserContext.Page`, target discovery and adoption | `page.on_popup` / `wait_for_popup` / `opener`, `context.on_page` / `wait_for_page` |
 
 ## Known gaps in the MVP
 
 - **Not yet ported:**
-  - From the page: downloads, file chooser, popups and target adoption, touch input, natural
-    mouse motion, the cursor overlay.
+  - From the page: downloads, file chooser, touch input, natural mouse motion, the cursor
+    overlay. Adopting tabs that were already open when connecting is not ported either.
   - Exposed bindings, storage state, permissions, geolocation, HTTP credentials.
   - Browser pool, heartbeat, and signal handlers.
 - **Platforms:** Windows launches over a WebSocket port. The shared test browser is killed at
@@ -91,6 +92,10 @@ run real browser tests.
   pattern without `*` matches any URL containing it.
 - `unroute` takes the `RouteId` that `route` returned, not the pattern string.
 - Each page opens in its own window, so a page never becomes a hidden background tab.
+
+- New pages attach through browser-level auto-attach and start paused, so a popup's first
+  request and scripts already see the context's routes, init scripts and emulation. Motus
+  discovered targets (`Target.setDiscoverTargets`) and attached after they started.
 
 ## Inherited as-is
 

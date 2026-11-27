@@ -71,8 +71,21 @@ impl Browser {
             closed: AtomicBool::new(false),
             pump: Mutex::new(None),
         });
-        let pump = tokio::spawn(target_pump(Arc::downgrade(&inner), session));
+        let pump = tokio::spawn(target_pump(Arc::downgrade(&inner), session.clone()));
         *inner.pump.lock().unwrap() = Some(pump);
+        // Every new page target (ours or one a page opens) attaches paused, so it is set up
+        // before it runs any script or loads anything.
+        session
+            .send(&target::SetAutoAttachParams {
+                auto_attach: true,
+                wait_for_debugger_on_start: true,
+                flatten: Some(true),
+                filter: Some(vec![target::FilterEntry {
+                    exclude: None,
+                    r#type: Some("page".into()),
+                }]),
+            })
+            .await?;
         Ok(Browser { inner })
     }
 
@@ -197,6 +210,10 @@ impl Browser {
         &self.inner.registry
     }
 
+    fn context_by_id(&self, id: &str) -> Option<BrowserContext> {
+        self.contexts().into_iter().find(|c| c.id() == id)
+    }
+
     pub(crate) fn register_page(&self, session_id: &str, page: &Arc<PageInner>) {
         self.inner
             .pages_by_session
@@ -241,17 +258,47 @@ impl Drop for BrowserInner {
 
 /// Watches browser-level target events: marks pages closed when their target detaches.
 async fn target_pump(browser: Weak<BrowserInner>, session: Arc<dyn Session>) {
-    let mut events = session.subscribe(&["Target.detachedFromTarget"]);
+    let mut events = session.subscribe(&["Target.detachedFromTarget", "Target.attachedToTarget"]);
     while let Some(event) = events.next().await {
-        let Some(browser) = browser.upgrade() else {
+        let Some(inner) = browser.upgrade() else {
             return;
         };
-        if let Some(session_id) = event.params["sessionId"].as_str() {
-            let page = browser.pages_by_session.lock().unwrap().remove(session_id);
-            if let Some(page) = page.and_then(|p| p.upgrade()) {
-                page.mark_closed();
+        match event.method.as_str() {
+            "Target.attachedToTarget" => {
+                let Ok(e) = serde_json::from_value::<target::AttachedToTargetEvent>(event.params)
+                else {
+                    continue;
+                };
+                let browser = Browser { inner };
+                let context = e
+                    .target_info
+                    .browser_context_id
+                    .as_deref()
+                    .filter(|_| e.target_info.r#type == "page")
+                    .and_then(|id| browser.context_by_id(id));
+                match context {
+                    Some(context) => {
+                        tokio::spawn(async move {
+                            context
+                                .adopt_target(e.session_id, e.target_info, e.waiting_for_debugger)
+                                .await;
+                        });
+                    }
+                    // Not ours (another context, or not a page): let it run and leave it be.
+                    None => {
+                        tokio::spawn(release_target(browser, e.session_id));
+                    }
+                }
             }
-            browser.registry.remove_session(session_id);
+            _ => {
+                if let Some(session_id) = event.params["sessionId"].as_str() {
+                    let page = inner.pages_by_session.lock().unwrap().remove(session_id);
+                    if let Some(page) = page.and_then(|p| p.upgrade()) {
+                        page.mark_closed();
+                    }
+                    inner.registry.remove_session(session_id);
+                }
+            }
         }
     }
     // The connection has gone: every page with it.
@@ -263,4 +310,21 @@ async fn target_pump(browser: Weak<BrowserInner>, session: Arc<dyn Session>) {
             }
         }
     }
+}
+
+/// Resumes a target agito attached to but does not drive, and detaches from it.
+async fn release_target(browser: Browser, session_id: String) {
+    let registry = browser.registry().clone();
+    let session = registry.create_session(&session_id);
+    let _ = session
+        .send(&agito_protocol::cdp::runtime::RunIfWaitingForDebuggerParams {})
+        .await;
+    let _ = browser
+        .browser_session()
+        .send(&target::DetachFromTargetParams {
+            session_id: Some(session_id.clone()),
+            ..Default::default()
+        })
+        .await;
+    registry.remove_session(&session_id);
 }
