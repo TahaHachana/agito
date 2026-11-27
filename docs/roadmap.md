@@ -90,14 +90,14 @@ crates/
   agito/            the engine: transport, launch, browser/context/page/frame, locator,
                     selectors, input, network, files, plugins, expect, config, harness
   agito-macros/     #[agito::test], #[agito::plugin]
+  agito-cli/        the `agito` binary: install
 samples/
   agito-samples/    page objects and tests ported from Motus.Samples
 xtask/              cargo xtask codegen [--check]
 scripts/publish.sh  release: checks, package, publish in order, tag
 ```
 
-Planned crates: `agito-cli` (the `agito` binary), `agito-recorder`, `agito-mcp` and
-`agito-runner`.
+Planned crates: `agito-recorder`, `agito-mcp` and `agito-runner`.
 
 The test harness lives in `agito::harness`, not in a separate `agito-test` crate as first
 planned. That way the attribute can be used as `#[agito::test]`.
@@ -113,7 +113,7 @@ planned. That way the attribute can be used as `#[agito::test]`.
 | 4 | `expect`, `#[agito::test]`, samples | Done; smaller gaps remain |
 | 5 | Firefox over WebDriver BiDi | Next major engine phase |
 | 6 | Accessibility, performance, coverage, tracing, video | Not started |
-| 7 | CLI | Not started (recommended next) |
+| 7 | CLI | In progress: `install` done |
 | 8 | Recorder, codegen, check-selectors | Not started |
 | 9 | MCP server | Not started |
 | 10 | Visual runner | Not started |
@@ -161,8 +161,9 @@ and downloads are unreleased.
 
 ### Phase 7: CLI (`agito`)
 
-- **`install`:** Chrome for Testing and Firefox, with `--revision`. It writes the
-  `~/.agito/browsers` markers the launcher already reads.
+- **`install`:** done for Chrome for Testing. `--revision` takes a version, milestone,
+  Chromium revision or channel. It writes the `~/.agito/browsers` markers the launcher reads.
+  Installing Firefox comes with phase 5.
 - **`screenshot` and `pdf`.**
 - **`update-protocol`:** fetches the new protocol JSON, regenerates the bindings and shows a
   diff.

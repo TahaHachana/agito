@@ -126,6 +126,19 @@ let png = page.screenshot(Default::default()).await?;
 browser.close().await?;
 ```
 
+## Installing a browser
+
+agito launches an installed Chrome, Edge or Chromium. To download one for agito instead:
+
+```bash
+cargo install agito-cli
+agito install                         # the current stable Chrome for Testing
+agito install --revision 131          # the newest build of a milestone
+agito install --revision 131.0.6778.85
+```
+
+Builds go to `~/.agito/browsers`, and the launcher prefers the last one installed there.
+
 ## Configuration
 
 Settings come from three places, each overriding the one before:
@@ -154,6 +167,7 @@ Variables: `AGITO_HEADLESS`, `AGITO_CHANNEL`, `AGITO_SLOWMO`, `AGITO_LAUNCH_TIME
 | Crate | What it holds |
 |---|---|
 | `crates/agito` | The engine: launcher, transport, browser/context/page, locators, input, selectors, plugins, `expect`, test harness |
+| `crates/agito-cli` | The `agito` command-line tool: `agito install` |
 | `crates/agito-macros` | `#[agito::test]` and `#[agito::plugin]` |
 | `crates/agito-protocol` | CDP bindings generated from the vendored protocol JSON |
 | `samples/agito-samples` | Example page object and tests, ported from Motus.Samples |

@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-CRATES=(agito-protocol agito-macros agito)
+CRATES=(agito-protocol agito-macros agito agito-cli)
 
 dry_run=false
 skip_tests=false

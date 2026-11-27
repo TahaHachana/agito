@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- The `agito` command-line tool (crate `agito-cli`), starting with `agito install`. It
+  downloads Chrome for Testing into `~/.agito/browsers`, where the launcher finds it with no
+  configuration. `--revision` picks the build by version (`131.0.6778.85`), milestone
+  (`131`), Chromium revision (`1368529`) or channel (`stable`, `beta`, `dev`, `canary`).
+  `--path` installs elsewhere.
 - Uploads:
   - `locator.set_input_files` takes paths or in-memory `FilePayload`s, works on hidden
     inputs, and clears the input when given `InputFiles::none()`.

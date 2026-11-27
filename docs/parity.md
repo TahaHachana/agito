@@ -13,7 +13,7 @@ run real browser tests.
 | 4 | `expect` assertions, `#[agito::test]` harness, samples | MVP done (see gaps) |
 | 5 | Firefox / WebDriver BiDi | Not started |
 | 6 | Accessibility, performance, coverage, tracing, video | Not started |
-| 7 | CLI (`agito`) | Not started |
+| 7 | CLI (`agito`) | In progress: `install` done |
 | 8 | Recorder, codegen, check-selectors | Not started |
 | 9 | MCP server | Not started |
 | 10 | Visual runner | Not started |
@@ -47,6 +47,7 @@ run real browser tests.
 | `HarRecorder`, `StartHarRecordingAsync` / `StopHarRecordingAsync` | `page.start_har` / `stop_har` / `stop_har_to` |
 | `IPage.Popup`, `IBrowserContext.Page`, target discovery and adoption | `page.on_popup` / `wait_for_popup` / `opener`, `context.on_page` / `wait_for_page` |
 | `ILocator.SetInputFilesAsync`, `IFileChooser` | `locator.set_input_files` (paths or `FilePayload`s), `page.wait_for_file_chooser` / `on_file_chooser`, `FileChooser::set_files` |
+| `motus install` (`BrowserInstaller`) | `agito install` (crate `agito-cli`), writing the markers `launch::finder` reads |
 | `IDownload`, `IPage.Download` | `Download` (`path`, `save_as`, `failure`, `cancel`, `delete`, `progress`), `page.wait_for_download` / `on_download` |
 
 ## Known gaps in the MVP
@@ -106,6 +107,17 @@ run real browser tests.
   element. Downloads go to a per-context directory through `Browser.setDownloadBehavior`
   (`allowAndName`), so `path`/`save_as` return the file; in Motus the path was never
   recorded.
+
+- `agito install --revision` takes a version, a milestone, a Chromium revision or a release
+  channel, and looks the build up. A revision shared by a branch's patch releases installs
+  the newest of them. Motus put the value straight into the download URL, so
+  only an exact version worked, and the revision number its README suggested could not.
+- `agito install` also downloads for Linux on Arm. A build is extracted into a staging
+  directory and renamed into place, so an interrupted install never looks installed, and a
+  failed one cleans up. Motus extracted in place and then trusted any directory under the
+  build's name.
+- `agito install --channel chrome|edge|firefox` fails with a message rather than exiting
+  successfully without installing anything. There is no legacy `.installed` marker.
 
 ## Inherited as-is
 

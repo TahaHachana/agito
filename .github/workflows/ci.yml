@@ -46,6 +46,11 @@ jobs:
         run: cargo test -p agito -p agito-samples --features agito/integration,agito-samples/integration
         env:
           AGITO_EXECUTABLE_PATH: ${{ steps.chrome.outputs.chrome-path }}
+      - name: agito install, then launch the installed build
+        # No AGITO_EXECUTABLE_PATH here: the launcher finds the build through the marker.
+        run: |
+          cargo run -p agito-cli -- install
+          cargo test -p agito --features integration --test connect
       - name: Raw transport smoke test
         run: cargo test -p agito --test live_transport -- --ignored
         env:
