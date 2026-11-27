@@ -3,6 +3,10 @@
 
 /// **Experimental.**
 pub mod accessibility;
+/// A domain for ad-related metrics and data.
+///
+/// **Experimental.**
+pub mod ads;
 /// **Experimental.**
 pub mod animation;
 /// Audits domain allows investigation of page violations and possible improvements.
@@ -35,6 +39,10 @@ pub mod cast;
 ///
 /// **Deprecated.**
 pub mod console;
+/// This domain exposes the current state of the CrashReportContext API.
+///
+/// **Experimental.**
+pub mod crash_report_context;
 /// This domain exposes CSS read/write operations. All CSS objects (stylesheets, rules, and styles)
 /// have an associated `id` used in subsequent operations on the related object. Each object type has
 /// a specific `id` structure, and those are not interchangeable between objects of different kinds.
@@ -51,6 +59,10 @@ pub mod debugger;
 pub mod device_access;
 /// **Experimental.**
 pub mod device_orientation;
+/// This domain allows interacting with the Digital Credentials API for automation.
+///
+/// **Experimental.**
+pub mod digital_credentials;
 /// This domain exposes DOM read/write operations. Each DOM Node is represented with its mirror object
 /// that has an `id`. This `id` can be used to get additional information on the Node, resolve it into
 /// the JavaScript object wrapper, etc. It is important that client receives DOM events only for the
@@ -90,6 +102,10 @@ pub mod fed_cm;
 pub mod fetch;
 /// **Experimental.**
 pub mod file_system;
+/// This domain provides commands to trigger the "Find in page" feature.
+///
+/// **Experimental.**
+pub mod find_in_page;
 /// This domain provides experimental commands only supported in headless mode.
 ///
 /// **Experimental.**

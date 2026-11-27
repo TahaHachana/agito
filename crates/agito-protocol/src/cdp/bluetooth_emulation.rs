@@ -489,6 +489,28 @@ impl crate::Command for SimulateGATTDisconnectionParams {
     type Response = SimulateGATTDisconnectionReturns;
 }
 
+/// Parameters of `BluetoothEmulation.simulateGATTMtuChange`.
+///
+/// Simulates the ATT MTU exchange procedure from Bluetooth Core Specification
+/// Vol 3 Part F 3.4.2 establishing |mtu| for the connection to the peripheral
+/// with |address|.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SimulateGATTMtuChangeParams {
+    #[serde(rename = "address")]
+    pub address: String,
+    #[serde(rename = "mtu")]
+    pub mtu: i64,
+}
+
+/// Return value of `BluetoothEmulation.simulateGATTMtuChange`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SimulateGATTMtuChangeReturns {}
+
+impl crate::Command for SimulateGATTMtuChangeParams {
+    const METHOD: &'static str = "BluetoothEmulation.simulateGATTMtuChange";
+    type Response = SimulateGATTMtuChangeReturns;
+}
+
 /// Payload of the `BluetoothEmulation.gattOperationReceived` event.
 ///
 /// Event for when a GATT operation of |type| to the peripheral with |address|

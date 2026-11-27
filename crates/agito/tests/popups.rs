@@ -143,6 +143,26 @@ async fn popups_that_close_themselves_are_closed(page: Page) -> agito::Result<()
     Ok(())
 }
 
+/// A command still waiting for its answer when its page goes away fails at once, rather than
+/// waiting out the command timeout: Chrome does not always answer commands on a target it is
+/// destroying.
+#[agito::test]
+async fn commands_pending_on_a_page_that_closes_fail_at_once(page: Page) -> agito::Result<()> {
+    page.goto(&site().await).await?;
+    let popup = page.wait_for_popup(None);
+    page.locator("#open").click().await?;
+    let popup = popup.await?;
+    let started = Instant::now();
+    let pending = popup.evaluate::<()>("new Promise(() => setTimeout(() => window.close(), 100))");
+    let err = tokio::time::timeout(Duration::from_secs(10), pending)
+        .await
+        .expect("the command fails when the page closes, not at the command timeout")
+        .unwrap_err();
+    assert!(err.is_browser_lost(), "{err:?}");
+    assert!(started.elapsed() < Duration::from_secs(5));
+    Ok(())
+}
+
 #[agito::test]
 async fn noopener_pages_still_reach_the_context(
     context: BrowserContext,

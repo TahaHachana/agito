@@ -26,11 +26,14 @@ pub enum Ctap2Version {
     Ctap20,
     #[serde(rename = "ctap2_1")]
     Ctap21,
+    #[serde(rename = "ctap2_2")]
+    Ctap22,
     /// A value this version of the bindings does not know about.
     #[serde(other)]
     UnrecognizedValue,
 }
 
+/// LINT.IfChange(AuthenticatorTransport)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AuthenticatorTransport {
     #[serde(rename = "usb")]
@@ -41,6 +44,10 @@ pub enum AuthenticatorTransport {
     Ble,
     #[serde(rename = "cable")]
     Cable,
+    #[serde(rename = "hybrid")]
+    Hybrid,
+    #[serde(rename = "smart-card")]
+    SmartCard,
     #[serde(rename = "internal")]
     Internal,
     /// A value this version of the bindings does not know about.
@@ -107,6 +114,34 @@ pub struct VirtualAuthenticatorOptions {
     /// Defaults to false.
     #[serde(rename = "hasPrf", default, skip_serializing_if = "Option::is_none")]
     pub has_prf: Option<bool>,
+    /// If set to true, the authenticator will support the hmac-secret extension.
+    /// https://fidoalliance.org/specs/fido-v2.1-ps-20210615/fido-client-to-authenticator-protocol-v2.1-ps-20210615.html#sctn-hmac-secret-extension
+    /// Defaults to false.
+    #[serde(
+        rename = "hasHmacSecret",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub has_hmac_secret: Option<bool>,
+    /// If set to true, the authenticator will support the hmac-secret-mc extension.
+    /// https://fidoalliance.org/specs/fido-v2.2-rd-20241003/fido-client-to-authenticator-protocol-v2.2-rd-20241003.html#sctn-hmac-secret-make-cred-extension
+    /// Defaults to false.
+    #[serde(
+        rename = "hasHmacSecretMc",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub has_hmac_secret_mc: Option<bool>,
+    /// If set to true, the authenticator will support the cmtgKey (Credential
+    /// Manager Trust Group Key) extension.
+    /// https://github.com/w3c/webauthn/pull/2377
+    /// Defaults to false.
+    #[serde(
+        rename = "hasCmtgKey",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub has_cmtg_key: Option<bool>,
     /// If set to true, tests of user presence will succeed immediately.
     /// Otherwise, they will not be resolved. Defaults to true.
     #[serde(
@@ -164,11 +199,12 @@ pub struct Credential {
         skip_serializing_if = "Option::is_none"
     )]
     pub user_handle: Option<String>,
-    /// Signature counter. This is incremented by one for each successful
-    /// assertion.
+    /// Signature counter. Must be equal to or greater than -1.
+    /// If -1, the credential won't have an associated signature counter, and
+    /// every assertion operation will report a value of 0.
     /// See https://w3c.github.io/webauthn/#signature-counter
     #[serde(rename = "signCount")]
-    pub sign_count: i64,
+    pub sign_count: f64,
     /// The large blob associated with the credential.
     /// See https://w3c.github.io/webauthn/#sctn-large-blob-extension (Encoded as a base64 string when passed over JSON)
     #[serde(rename = "largeBlob", default, skip_serializing_if = "Option::is_none")]
@@ -204,6 +240,23 @@ pub struct Credential {
         skip_serializing_if = "Option::is_none"
     )]
     pub user_display_name: Option<String>,
+    /// The CMTG keys associated with the credential.
+    #[serde(rename = "cmtgKeys", default, skip_serializing_if = "Option::is_none")]
+    pub cmtg_keys: Option<Vec<String>>,
+    /// The 0-based index of the active key in cmtgKeys.
+    #[serde(
+        rename = "activeCmtgKeyIndex",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub active_cmtg_key_index: Option<i64>,
+    /// If true, the authenticator will generate a new CMTG key on the next operation.
+    #[serde(
+        rename = "generateCmtgKeyOnNextOperation",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub generate_cmtg_key_on_next_operation: Option<bool>,
 }
 
 /// Parameters of `WebAuthn.enable`.
@@ -485,6 +538,24 @@ pub struct SetCredentialPropertiesParams {
         skip_serializing_if = "Option::is_none"
     )]
     pub backup_state: Option<bool>,
+    #[serde(
+        rename = "activeCmtgKeyIndex",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub active_cmtg_key_index: Option<i64>,
+    #[serde(
+        rename = "generateCmtgKeyOnNextOperation",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub generate_cmtg_key_on_next_operation: Option<bool>,
+    /// Must be equal to or greater than -1.
+    /// If -1, the signature counter is removed from the credential, and every
+    /// assertion operation will report a value of 0.
+    /// See https://w3c.github.io/webauthn/#signature-counter
+    #[serde(rename = "signCount", default, skip_serializing_if = "Option::is_none")]
+    pub sign_count: Option<f64>,
 }
 
 /// Return value of `WebAuthn.setCredentialProperties`.

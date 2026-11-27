@@ -25,10 +25,6 @@ pub enum StorageType {
     ServiceWorkers,
     #[serde(rename = "cache_storage")]
     CacheStorage,
-    #[serde(rename = "interest_groups")]
-    InterestGroups,
-    #[serde(rename = "shared_storage")]
-    SharedStorage,
     #[serde(rename = "storage_buckets")]
     StorageBuckets,
     #[serde(rename = "all")]
@@ -63,325 +59,45 @@ pub struct TrustTokens {
     pub count: f64,
 }
 
-/// Protected audience interest group auction identifier.
-pub type InterestGroupAuctionId = String;
-
-/// Enum of interest group access types.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum InterestGroupAccessType {
-    #[serde(rename = "join")]
-    Join,
-    #[serde(rename = "leave")]
-    Leave,
-    #[serde(rename = "update")]
-    Update,
-    #[serde(rename = "loaded")]
-    Loaded,
-    #[serde(rename = "bid")]
-    Bid,
-    #[serde(rename = "win")]
-    Win,
-    #[serde(rename = "additionalBid")]
-    AdditionalBid,
-    #[serde(rename = "additionalBidWin")]
-    AdditionalBidWin,
-    #[serde(rename = "topLevelBid")]
-    TopLevelBid,
-    #[serde(rename = "topLevelAdditionalBid")]
-    TopLevelAdditionalBid,
-    #[serde(rename = "clear")]
-    Clear,
-    /// A value this version of the bindings does not know about.
-    #[serde(other)]
-    UnrecognizedValue,
-}
-
-/// Enum of auction events.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum InterestGroupAuctionEventType {
-    #[serde(rename = "started")]
-    Started,
-    #[serde(rename = "configResolved")]
-    ConfigResolved,
-    /// A value this version of the bindings does not know about.
-    #[serde(other)]
-    UnrecognizedValue,
-}
-
-/// Enum of network fetches auctions can do.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum InterestGroupAuctionFetchType {
-    #[serde(rename = "bidderJs")]
-    BidderJs,
-    #[serde(rename = "bidderWasm")]
-    BidderWasm,
-    #[serde(rename = "sellerJs")]
-    SellerJs,
-    #[serde(rename = "bidderTrustedSignals")]
-    BidderTrustedSignals,
-    #[serde(rename = "sellerTrustedSignals")]
-    SellerTrustedSignals,
-    /// A value this version of the bindings does not know about.
-    #[serde(other)]
-    UnrecognizedValue,
-}
-
-/// Enum of shared storage access scopes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum SharedStorageAccessScope {
-    #[serde(rename = "window")]
-    Window,
-    #[serde(rename = "sharedStorageWorklet")]
-    SharedStorageWorklet,
-    #[serde(rename = "protectedAudienceWorklet")]
-    ProtectedAudienceWorklet,
-    #[serde(rename = "header")]
-    Header,
-    /// A value this version of the bindings does not know about.
-    #[serde(other)]
-    UnrecognizedValue,
-}
-
-/// Enum of shared storage access methods.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum SharedStorageAccessMethod {
-    #[serde(rename = "addModule")]
-    AddModule,
-    #[serde(rename = "createWorklet")]
-    CreateWorklet,
-    #[serde(rename = "selectURL")]
-    SelectURL,
-    #[serde(rename = "run")]
-    Run,
-    #[serde(rename = "batchUpdate")]
-    BatchUpdate,
-    #[serde(rename = "set")]
-    Set,
-    #[serde(rename = "append")]
-    Append,
-    #[serde(rename = "delete")]
-    Delete,
-    #[serde(rename = "clear")]
-    Clear,
-    #[serde(rename = "get")]
-    Get,
-    #[serde(rename = "keys")]
-    Keys,
-    #[serde(rename = "values")]
-    Values,
-    #[serde(rename = "entries")]
-    Entries,
-    #[serde(rename = "length")]
-    Length,
-    #[serde(rename = "remainingBudget")]
-    RemainingBudget,
-    /// A value this version of the bindings does not know about.
-    #[serde(other)]
-    UnrecognizedValue,
-}
-
-/// Struct for a single key-value pair in an origin's shared storage.
+/// Details of a stored Private Verification Token.
+///
+/// **Experimental.**
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SharedStorageEntry {
-    #[serde(rename = "key")]
-    pub key: String,
-    #[serde(rename = "value")]
-    pub value: String,
-}
-
-/// Details for an origin's shared storage.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SharedStorageMetadata {
-    /// Time when the origin's shared storage was last created.
+pub struct PrivateVerificationToken {
+    /// Unique identifier of the token in the database.
+    #[serde(rename = "id")]
+    pub id: String,
+    /// Origin of the token issuer.
+    #[serde(rename = "issuerOrigin")]
+    pub issuer_origin: String,
+    /// Public key ID used to issue the token.
+    #[serde(rename = "keyId")]
+    pub key_id: i64,
+    /// Expiration timestamp in seconds since the epoch.
+    #[serde(rename = "expiration")]
+    pub expiration: super::network::TimeSinceEpoch,
+    /// Token creation timestamp in seconds since the epoch.
     #[serde(rename = "creationTime")]
     pub creation_time: super::network::TimeSinceEpoch,
-    /// Number of key-value pairs stored in origin's shared storage.
-    #[serde(rename = "length")]
-    pub length: i64,
-    /// Current amount of bits of entropy remaining in the navigation budget.
-    #[serde(rename = "remainingBudget")]
-    pub remaining_budget: f64,
-    /// Total number of bytes stored as key-value pairs in origin's shared
-    /// storage.
-    #[serde(rename = "bytesUsed")]
-    pub bytes_used: i64,
+    /// Token protocol version.
+    #[serde(rename = "version")]
+    pub version: i64,
+    /// Base64-encoded serialized token.
+    #[serde(rename = "token")]
+    pub token: String,
 }
 
-/// Represents a dictionary object passed in as privateAggregationConfig to
-/// run or selectURL.
+/// Configuration for a Private Verification Tokens issuer.
+///
+/// **Experimental.**
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SharedStoragePrivateAggregationConfig {
-    /// The chosen aggregation service deployment.
-    #[serde(
-        rename = "aggregationCoordinatorOrigin",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub aggregation_coordinator_origin: Option<String>,
-    /// The context ID provided.
-    #[serde(rename = "contextId", default, skip_serializing_if = "Option::is_none")]
-    pub context_id: Option<String>,
-    /// Configures the maximum size allowed for filtering IDs.
-    #[serde(rename = "filteringIdMaxBytes")]
-    pub filtering_id_max_bytes: i64,
-    /// The limit on the number of contributions in the final report.
-    #[serde(
-        rename = "maxContributions",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub max_contributions: Option<i64>,
-}
-
-/// Pair of reporting metadata details for a candidate URL for `selectURL()`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SharedStorageReportingMetadata {
-    #[serde(rename = "eventType")]
-    pub event_type: String,
-    #[serde(rename = "reportingUrl")]
-    pub reporting_url: String,
-}
-
-/// Bundles a candidate URL with its reporting metadata.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SharedStorageUrlWithMetadata {
-    /// Spec of candidate URL.
-    #[serde(rename = "url")]
-    pub url: String,
-    /// Any associated reporting metadata.
-    #[serde(rename = "reportingMetadata")]
-    pub reporting_metadata: Vec<SharedStorageReportingMetadata>,
-}
-
-/// Bundles the parameters for shared storage access events whose
-/// presence/absence can vary according to SharedStorageAccessType.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SharedStorageAccessParams {
-    /// Spec of the module script URL.
-    /// Present only for SharedStorageAccessMethods: addModule and
-    /// createWorklet.
-    #[serde(
-        rename = "scriptSourceUrl",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub script_source_url: Option<String>,
-    /// String denoting "context-origin", "script-origin", or a custom
-    /// origin to be used as the worklet's data origin.
-    /// Present only for SharedStorageAccessMethod: createWorklet.
-    #[serde(
-        rename = "dataOrigin",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub data_origin: Option<String>,
-    /// Name of the registered operation to be run.
-    /// Present only for SharedStorageAccessMethods: run and selectURL.
-    #[serde(
-        rename = "operationName",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub operation_name: Option<String>,
-    /// ID of the operation call.
-    /// Present only for SharedStorageAccessMethods: run and selectURL.
-    #[serde(
-        rename = "operationId",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub operation_id: Option<String>,
-    /// Whether or not to keep the worket alive for future run or selectURL
-    /// calls.
-    /// Present only for SharedStorageAccessMethods: run and selectURL.
-    #[serde(rename = "keepAlive", default, skip_serializing_if = "Option::is_none")]
-    pub keep_alive: Option<bool>,
-    /// Configures the private aggregation options.
-    /// Present only for SharedStorageAccessMethods: run and selectURL.
-    #[serde(
-        rename = "privateAggregationConfig",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub private_aggregation_config: Option<SharedStoragePrivateAggregationConfig>,
-    /// The operation's serialized data in bytes (converted to a string).
-    /// Present only for SharedStorageAccessMethods: run and selectURL.
-    /// TODO(crbug.com/401011862): Consider updating this parameter to binary.
-    #[serde(
-        rename = "serializedData",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub serialized_data: Option<String>,
-    /// Array of candidate URLs' specs, along with any associated metadata.
-    /// Present only for SharedStorageAccessMethod: selectURL.
-    #[serde(
-        rename = "urlsWithMetadata",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub urls_with_metadata: Option<Vec<SharedStorageUrlWithMetadata>>,
-    /// Spec of the URN:UUID generated for a selectURL call.
-    /// Present only for SharedStorageAccessMethod: selectURL.
-    #[serde(rename = "urnUuid", default, skip_serializing_if = "Option::is_none")]
-    pub urn_uuid: Option<String>,
-    /// Key for a specific entry in an origin's shared storage.
-    /// Present only for SharedStorageAccessMethods: set, append, delete, and
-    /// get.
-    #[serde(rename = "key", default, skip_serializing_if = "Option::is_none")]
-    pub key: Option<String>,
-    /// Value for a specific entry in an origin's shared storage.
-    /// Present only for SharedStorageAccessMethods: set and append.
-    #[serde(rename = "value", default, skip_serializing_if = "Option::is_none")]
-    pub value: Option<String>,
-    /// Whether or not to set an entry for a key if that key is already present.
-    /// Present only for SharedStorageAccessMethod: set.
-    #[serde(
-        rename = "ignoreIfPresent",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub ignore_if_present: Option<bool>,
-    /// A number denoting the (0-based) order of the worklet's
-    /// creation relative to all other shared storage worklets created by
-    /// documents using the current storage partition.
-    /// Present only for SharedStorageAccessMethods: addModule, createWorklet.
-    #[serde(
-        rename = "workletOrdinal",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub worklet_ordinal: Option<i64>,
-    /// Hex representation of the DevTools token used as the TargetID for the
-    /// associated shared storage worklet.
-    /// Present only for SharedStorageAccessMethods: addModule, createWorklet,
-    /// run, selectURL, and any other SharedStorageAccessMethod when the
-    /// SharedStorageAccessScope is sharedStorageWorklet.
-    #[serde(
-        rename = "workletTargetId",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub worklet_target_id: Option<super::target::TargetID>,
-    /// Name of the lock to be acquired, if present.
-    /// Optionally present only for SharedStorageAccessMethods: batchUpdate,
-    /// set, append, delete, and clear.
-    #[serde(rename = "withLock", default, skip_serializing_if = "Option::is_none")]
-    pub with_lock: Option<String>,
-    /// If the method has been called as part of a batchUpdate, then this
-    /// number identifies the batch to which it belongs.
-    /// Optionally present only for SharedStorageAccessMethods:
-    /// batchUpdate (required), set, append, delete, and clear.
-    #[serde(
-        rename = "batchUpdateId",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub batch_update_id: Option<String>,
-    /// Number of modifier methods sent in batch.
-    /// Present only for SharedStorageAccessMethod: batchUpdate.
-    #[serde(rename = "batchSize", default, skip_serializing_if = "Option::is_none")]
-    pub batch_size: Option<i64>,
+pub struct PrivateVerificationTokensIssuerConfig {
+    /// Origin of the token issuer.
+    #[serde(rename = "issuerOrigin")]
+    pub issuer_origin: String,
+    /// Origins authorized to redeem tokens from this issuer.
+    #[serde(rename = "redeemerOrigins")]
+    pub redeemer_origins: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -419,475 +135,6 @@ pub struct StorageBucketInfo {
     pub persistent: bool,
     #[serde(rename = "durability")]
     pub durability: StorageBucketsDurability,
-}
-
-/// **Experimental.**
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum AttributionReportingSourceType {
-    #[serde(rename = "navigation")]
-    Navigation,
-    #[serde(rename = "event")]
-    Event,
-    /// A value this version of the bindings does not know about.
-    #[serde(other)]
-    UnrecognizedValue,
-}
-
-/// **Experimental.**
-pub type UnsignedInt64AsBase10 = String;
-
-/// **Experimental.**
-pub type UnsignedInt128AsBase16 = String;
-
-/// **Experimental.**
-pub type SignedInt64AsBase10 = String;
-
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct AttributionReportingFilterDataEntry {
-    #[serde(rename = "key")]
-    pub key: String,
-    #[serde(rename = "values")]
-    pub values: Vec<String>,
-}
-
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct AttributionReportingFilterConfig {
-    #[serde(rename = "filterValues")]
-    pub filter_values: Vec<AttributionReportingFilterDataEntry>,
-    /// duration in seconds
-    #[serde(
-        rename = "lookbackWindow",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub lookback_window: Option<i64>,
-}
-
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct AttributionReportingFilterPair {
-    #[serde(rename = "filters")]
-    pub filters: Vec<AttributionReportingFilterConfig>,
-    #[serde(rename = "notFilters")]
-    pub not_filters: Vec<AttributionReportingFilterConfig>,
-}
-
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct AttributionReportingAggregationKeysEntry {
-    #[serde(rename = "key")]
-    pub key: String,
-    #[serde(rename = "value")]
-    pub value: UnsignedInt128AsBase16,
-}
-
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct AttributionReportingEventReportWindows {
-    /// duration in seconds
-    #[serde(rename = "start")]
-    pub start: i64,
-    /// duration in seconds
-    #[serde(rename = "ends")]
-    pub ends: Vec<i64>,
-}
-
-/// **Experimental.**
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum AttributionReportingTriggerDataMatching {
-    #[serde(rename = "exact")]
-    Exact,
-    #[serde(rename = "modulus")]
-    Modulus,
-    /// A value this version of the bindings does not know about.
-    #[serde(other)]
-    UnrecognizedValue,
-}
-
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct AttributionReportingAggregatableDebugReportingData {
-    #[serde(rename = "keyPiece")]
-    pub key_piece: UnsignedInt128AsBase16,
-    /// number instead of integer because not all uint32 can be represented by
-    /// int
-    #[serde(rename = "value")]
-    pub value: f64,
-    #[serde(rename = "types")]
-    pub types: Vec<String>,
-}
-
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct AttributionReportingAggregatableDebugReportingConfig {
-    /// number instead of integer because not all uint32 can be represented by
-    /// int, only present for source registrations
-    #[serde(rename = "budget", default, skip_serializing_if = "Option::is_none")]
-    pub budget: Option<f64>,
-    #[serde(rename = "keyPiece")]
-    pub key_piece: UnsignedInt128AsBase16,
-    #[serde(rename = "debugData")]
-    pub debug_data: Vec<AttributionReportingAggregatableDebugReportingData>,
-    #[serde(
-        rename = "aggregationCoordinatorOrigin",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub aggregation_coordinator_origin: Option<String>,
-}
-
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct AttributionScopesData {
-    #[serde(rename = "values")]
-    pub values: Vec<String>,
-    /// number instead of integer because not all uint32 can be represented by
-    /// int
-    #[serde(rename = "limit")]
-    pub limit: f64,
-    #[serde(rename = "maxEventStates")]
-    pub max_event_states: f64,
-}
-
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct AttributionReportingNamedBudgetDef {
-    #[serde(rename = "name")]
-    pub name: String,
-    #[serde(rename = "budget")]
-    pub budget: i64,
-}
-
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AttributionReportingSourceRegistration {
-    #[serde(rename = "time")]
-    pub time: super::network::TimeSinceEpoch,
-    /// duration in seconds
-    #[serde(rename = "expiry")]
-    pub expiry: i64,
-    /// number instead of integer because not all uint32 can be represented by
-    /// int
-    #[serde(rename = "triggerData")]
-    pub trigger_data: Vec<f64>,
-    #[serde(rename = "eventReportWindows")]
-    pub event_report_windows: AttributionReportingEventReportWindows,
-    /// duration in seconds
-    #[serde(rename = "aggregatableReportWindow")]
-    pub aggregatable_report_window: i64,
-    #[serde(rename = "type")]
-    pub r#type: AttributionReportingSourceType,
-    #[serde(rename = "sourceOrigin")]
-    pub source_origin: String,
-    #[serde(rename = "reportingOrigin")]
-    pub reporting_origin: String,
-    #[serde(rename = "destinationSites")]
-    pub destination_sites: Vec<String>,
-    #[serde(rename = "eventId")]
-    pub event_id: UnsignedInt64AsBase10,
-    #[serde(rename = "priority")]
-    pub priority: SignedInt64AsBase10,
-    #[serde(rename = "filterData")]
-    pub filter_data: Vec<AttributionReportingFilterDataEntry>,
-    #[serde(rename = "aggregationKeys")]
-    pub aggregation_keys: Vec<AttributionReportingAggregationKeysEntry>,
-    #[serde(rename = "debugKey", default, skip_serializing_if = "Option::is_none")]
-    pub debug_key: Option<UnsignedInt64AsBase10>,
-    #[serde(rename = "triggerDataMatching")]
-    pub trigger_data_matching: AttributionReportingTriggerDataMatching,
-    #[serde(rename = "destinationLimitPriority")]
-    pub destination_limit_priority: SignedInt64AsBase10,
-    #[serde(rename = "aggregatableDebugReportingConfig")]
-    pub aggregatable_debug_reporting_config: AttributionReportingAggregatableDebugReportingConfig,
-    #[serde(
-        rename = "scopesData",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub scopes_data: Option<AttributionScopesData>,
-    #[serde(rename = "maxEventLevelReports")]
-    pub max_event_level_reports: i64,
-    #[serde(rename = "namedBudgets")]
-    pub named_budgets: Vec<AttributionReportingNamedBudgetDef>,
-    #[serde(rename = "debugReporting")]
-    pub debug_reporting: bool,
-    #[serde(rename = "eventLevelEpsilon")]
-    pub event_level_epsilon: f64,
-}
-
-/// **Experimental.**
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum AttributionReportingSourceRegistrationResult {
-    #[serde(rename = "success")]
-    Success,
-    #[serde(rename = "internalError")]
-    InternalError,
-    #[serde(rename = "insufficientSourceCapacity")]
-    InsufficientSourceCapacity,
-    #[serde(rename = "insufficientUniqueDestinationCapacity")]
-    InsufficientUniqueDestinationCapacity,
-    #[serde(rename = "excessiveReportingOrigins")]
-    ExcessiveReportingOrigins,
-    #[serde(rename = "prohibitedByBrowserPolicy")]
-    ProhibitedByBrowserPolicy,
-    #[serde(rename = "successNoised")]
-    SuccessNoised,
-    #[serde(rename = "destinationReportingLimitReached")]
-    DestinationReportingLimitReached,
-    #[serde(rename = "destinationGlobalLimitReached")]
-    DestinationGlobalLimitReached,
-    #[serde(rename = "destinationBothLimitsReached")]
-    DestinationBothLimitsReached,
-    #[serde(rename = "reportingOriginsPerSiteLimitReached")]
-    ReportingOriginsPerSiteLimitReached,
-    #[serde(rename = "exceedsMaxChannelCapacity")]
-    ExceedsMaxChannelCapacity,
-    #[serde(rename = "exceedsMaxScopesChannelCapacity")]
-    ExceedsMaxScopesChannelCapacity,
-    #[serde(rename = "exceedsMaxTriggerStateCardinality")]
-    ExceedsMaxTriggerStateCardinality,
-    #[serde(rename = "exceedsMaxEventStatesLimit")]
-    ExceedsMaxEventStatesLimit,
-    #[serde(rename = "destinationPerDayReportingLimitReached")]
-    DestinationPerDayReportingLimitReached,
-    /// A value this version of the bindings does not know about.
-    #[serde(other)]
-    UnrecognizedValue,
-}
-
-/// **Experimental.**
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum AttributionReportingSourceRegistrationTimeConfig {
-    #[serde(rename = "include")]
-    Include,
-    #[serde(rename = "exclude")]
-    Exclude,
-    /// A value this version of the bindings does not know about.
-    #[serde(other)]
-    UnrecognizedValue,
-}
-
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct AttributionReportingAggregatableValueDictEntry {
-    #[serde(rename = "key")]
-    pub key: String,
-    /// number instead of integer because not all uint32 can be represented by
-    /// int
-    #[serde(rename = "value")]
-    pub value: f64,
-    #[serde(rename = "filteringId")]
-    pub filtering_id: UnsignedInt64AsBase10,
-}
-
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct AttributionReportingAggregatableValueEntry {
-    #[serde(rename = "values")]
-    pub values: Vec<AttributionReportingAggregatableValueDictEntry>,
-    #[serde(rename = "filters")]
-    pub filters: AttributionReportingFilterPair,
-}
-
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct AttributionReportingEventTriggerData {
-    #[serde(rename = "data")]
-    pub data: UnsignedInt64AsBase10,
-    #[serde(rename = "priority")]
-    pub priority: SignedInt64AsBase10,
-    #[serde(rename = "dedupKey", default, skip_serializing_if = "Option::is_none")]
-    pub dedup_key: Option<UnsignedInt64AsBase10>,
-    #[serde(rename = "filters")]
-    pub filters: AttributionReportingFilterPair,
-}
-
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct AttributionReportingAggregatableTriggerData {
-    #[serde(rename = "keyPiece")]
-    pub key_piece: UnsignedInt128AsBase16,
-    #[serde(rename = "sourceKeys")]
-    pub source_keys: Vec<String>,
-    #[serde(rename = "filters")]
-    pub filters: AttributionReportingFilterPair,
-}
-
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct AttributionReportingAggregatableDedupKey {
-    #[serde(rename = "dedupKey", default, skip_serializing_if = "Option::is_none")]
-    pub dedup_key: Option<UnsignedInt64AsBase10>,
-    #[serde(rename = "filters")]
-    pub filters: AttributionReportingFilterPair,
-}
-
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct AttributionReportingNamedBudgetCandidate {
-    #[serde(rename = "name", default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(rename = "filters")]
-    pub filters: AttributionReportingFilterPair,
-}
-
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AttributionReportingTriggerRegistration {
-    #[serde(rename = "filters")]
-    pub filters: AttributionReportingFilterPair,
-    #[serde(rename = "debugKey", default, skip_serializing_if = "Option::is_none")]
-    pub debug_key: Option<UnsignedInt64AsBase10>,
-    #[serde(rename = "aggregatableDedupKeys")]
-    pub aggregatable_dedup_keys: Vec<AttributionReportingAggregatableDedupKey>,
-    #[serde(rename = "eventTriggerData")]
-    pub event_trigger_data: Vec<AttributionReportingEventTriggerData>,
-    #[serde(rename = "aggregatableTriggerData")]
-    pub aggregatable_trigger_data: Vec<AttributionReportingAggregatableTriggerData>,
-    #[serde(rename = "aggregatableValues")]
-    pub aggregatable_values: Vec<AttributionReportingAggregatableValueEntry>,
-    #[serde(rename = "aggregatableFilteringIdMaxBytes")]
-    pub aggregatable_filtering_id_max_bytes: i64,
-    #[serde(rename = "debugReporting")]
-    pub debug_reporting: bool,
-    #[serde(
-        rename = "aggregationCoordinatorOrigin",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub aggregation_coordinator_origin: Option<String>,
-    #[serde(rename = "sourceRegistrationTimeConfig")]
-    pub source_registration_time_config: AttributionReportingSourceRegistrationTimeConfig,
-    #[serde(
-        rename = "triggerContextId",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub trigger_context_id: Option<String>,
-    #[serde(rename = "aggregatableDebugReportingConfig")]
-    pub aggregatable_debug_reporting_config: AttributionReportingAggregatableDebugReportingConfig,
-    #[serde(rename = "scopes")]
-    pub scopes: Vec<String>,
-    #[serde(rename = "namedBudgets")]
-    pub named_budgets: Vec<AttributionReportingNamedBudgetCandidate>,
-}
-
-/// **Experimental.**
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum AttributionReportingEventLevelResult {
-    #[serde(rename = "success")]
-    Success,
-    #[serde(rename = "successDroppedLowerPriority")]
-    SuccessDroppedLowerPriority,
-    #[serde(rename = "internalError")]
-    InternalError,
-    #[serde(rename = "noCapacityForAttributionDestination")]
-    NoCapacityForAttributionDestination,
-    #[serde(rename = "noMatchingSources")]
-    NoMatchingSources,
-    #[serde(rename = "deduplicated")]
-    Deduplicated,
-    #[serde(rename = "excessiveAttributions")]
-    ExcessiveAttributions,
-    #[serde(rename = "priorityTooLow")]
-    PriorityTooLow,
-    #[serde(rename = "neverAttributedSource")]
-    NeverAttributedSource,
-    #[serde(rename = "excessiveReportingOrigins")]
-    ExcessiveReportingOrigins,
-    #[serde(rename = "noMatchingSourceFilterData")]
-    NoMatchingSourceFilterData,
-    #[serde(rename = "prohibitedByBrowserPolicy")]
-    ProhibitedByBrowserPolicy,
-    #[serde(rename = "noMatchingConfigurations")]
-    NoMatchingConfigurations,
-    #[serde(rename = "excessiveReports")]
-    ExcessiveReports,
-    #[serde(rename = "falselyAttributedSource")]
-    FalselyAttributedSource,
-    #[serde(rename = "reportWindowPassed")]
-    ReportWindowPassed,
-    #[serde(rename = "notRegistered")]
-    NotRegistered,
-    #[serde(rename = "reportWindowNotStarted")]
-    ReportWindowNotStarted,
-    #[serde(rename = "noMatchingTriggerData")]
-    NoMatchingTriggerData,
-    /// A value this version of the bindings does not know about.
-    #[serde(other)]
-    UnrecognizedValue,
-}
-
-/// **Experimental.**
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum AttributionReportingAggregatableResult {
-    #[serde(rename = "success")]
-    Success,
-    #[serde(rename = "internalError")]
-    InternalError,
-    #[serde(rename = "noCapacityForAttributionDestination")]
-    NoCapacityForAttributionDestination,
-    #[serde(rename = "noMatchingSources")]
-    NoMatchingSources,
-    #[serde(rename = "excessiveAttributions")]
-    ExcessiveAttributions,
-    #[serde(rename = "excessiveReportingOrigins")]
-    ExcessiveReportingOrigins,
-    #[serde(rename = "noHistograms")]
-    NoHistograms,
-    #[serde(rename = "insufficientBudget")]
-    InsufficientBudget,
-    #[serde(rename = "insufficientNamedBudget")]
-    InsufficientNamedBudget,
-    #[serde(rename = "noMatchingSourceFilterData")]
-    NoMatchingSourceFilterData,
-    #[serde(rename = "notRegistered")]
-    NotRegistered,
-    #[serde(rename = "prohibitedByBrowserPolicy")]
-    ProhibitedByBrowserPolicy,
-    #[serde(rename = "deduplicated")]
-    Deduplicated,
-    #[serde(rename = "reportWindowPassed")]
-    ReportWindowPassed,
-    #[serde(rename = "excessiveReports")]
-    ExcessiveReports,
-    /// A value this version of the bindings does not know about.
-    #[serde(other)]
-    UnrecognizedValue,
-}
-
-/// **Experimental.**
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum AttributionReportingReportResult {
-    #[serde(rename = "sent")]
-    Sent,
-    #[serde(rename = "prohibited")]
-    Prohibited,
-    #[serde(rename = "failedToAssemble")]
-    FailedToAssemble,
-    #[serde(rename = "expired")]
-    Expired,
-    /// A value this version of the bindings does not know about.
-    #[serde(other)]
-    UnrecognizedValue,
-}
-
-/// A single Related Website Set object.
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct RelatedWebsiteSet {
-    /// The primary site of this set, along with the ccTLDs if there is any.
-    #[serde(rename = "primarySites")]
-    pub primary_sites: Vec<String>,
-    /// The associated sites of this set, along with the ccTLDs if there is any.
-    #[serde(rename = "associatedSites")]
-    pub associated_sites: Vec<String>,
-    /// The service sites of this set, along with the ccTLDs if there is any.
-    #[serde(rename = "serviceSites")]
-    pub service_sites: Vec<String>,
 }
 
 /// Parameters of `Storage.getStorageKeyForFrame`.
@@ -1318,234 +565,106 @@ impl crate::Command for ClearTrustTokensParams {
     type Response = ClearTrustTokensReturns;
 }
 
-/// Parameters of `Storage.getInterestGroupDetails`.
+/// Parameters of `Storage.getPrivateVerificationTokens`.
 ///
-/// Gets details for a named interest group.
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct GetInterestGroupDetailsParams {
-    #[serde(rename = "ownerOrigin")]
-    pub owner_origin: String,
-    #[serde(rename = "name")]
-    pub name: String,
-}
-
-/// Return value of `Storage.getInterestGroupDetails`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct GetInterestGroupDetailsReturns {
-    /// This largely corresponds to:
-    /// https://wicg.github.io/turtledove/#dictdef-generatebidinterestgroup
-    /// but has absolute expirationTime instead of relative lifetimeMs and
-    /// also adds joiningOrigin.
-    #[serde(rename = "details")]
-    pub details: serde_json::Value,
-}
-
-impl crate::Command for GetInterestGroupDetailsParams {
-    const METHOD: &'static str = "Storage.getInterestGroupDetails";
-    type Response = GetInterestGroupDetailsReturns;
-}
-
-/// Parameters of `Storage.setInterestGroupTracking`.
-///
-/// Enables/Disables issuing of interestGroupAccessed events.
+/// Returns all stored Private Verification Tokens for the current browsing
+/// context.
 ///
 /// **Experimental.**
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SetInterestGroupTrackingParams {
+pub struct GetPrivateVerificationTokensParams {}
+
+/// Return value of `Storage.getPrivateVerificationTokens`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GetPrivateVerificationTokensReturns {
+    #[serde(rename = "tokens")]
+    pub tokens: Vec<PrivateVerificationToken>,
+}
+
+impl crate::Command for GetPrivateVerificationTokensParams {
+    const METHOD: &'static str = "Storage.getPrivateVerificationTokens";
+    type Response = GetPrivateVerificationTokensReturns;
+}
+
+/// Parameters of `Storage.getPrivateVerificationTokensIssuerConfigs`.
+///
+/// Returns the configured Private Verification Tokens issuers and their redeemer
+/// origins.
+///
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GetPrivateVerificationTokensIssuerConfigsParams {}
+
+/// Return value of `Storage.getPrivateVerificationTokensIssuerConfigs`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GetPrivateVerificationTokensIssuerConfigsReturns {
+    #[serde(rename = "configs")]
+    pub configs: Vec<PrivateVerificationTokensIssuerConfig>,
+}
+
+impl crate::Command for GetPrivateVerificationTokensIssuerConfigsParams {
+    const METHOD: &'static str = "Storage.getPrivateVerificationTokensIssuerConfigs";
+    type Response = GetPrivateVerificationTokensIssuerConfigsReturns;
+}
+
+/// Parameters of `Storage.clearPrivateVerificationTokens`.
+///
+/// Removes all Private Verification Tokens issued by the provided issuerOrigin.
+///
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ClearPrivateVerificationTokensParams {
+    #[serde(rename = "issuerOrigin")]
+    pub issuer_origin: String,
+}
+
+/// Return value of `Storage.clearPrivateVerificationTokens`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ClearPrivateVerificationTokensReturns {}
+
+impl crate::Command for ClearPrivateVerificationTokensParams {
+    const METHOD: &'static str = "Storage.clearPrivateVerificationTokens";
+    type Response = ClearPrivateVerificationTokensReturns;
+}
+
+/// Parameters of `Storage.deletePrivateVerificationToken`.
+///
+/// Removes a specific Private Verification Token by its ID.
+///
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct DeletePrivateVerificationTokenParams {
+    #[serde(rename = "tokenId")]
+    pub token_id: String,
+}
+
+/// Return value of `Storage.deletePrivateVerificationToken`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct DeletePrivateVerificationTokenReturns {}
+
+impl crate::Command for DeletePrivateVerificationTokenParams {
+    const METHOD: &'static str = "Storage.deletePrivateVerificationToken";
+    type Response = DeletePrivateVerificationTokenReturns;
+}
+
+/// Parameters of `Storage.setPrivateVerificationTokensTracking`.
+///
+/// Set tracking for Private Verification Tokens.
+///
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SetPrivateVerificationTokensTrackingParams {
     #[serde(rename = "enable")]
     pub enable: bool,
 }
 
-/// Return value of `Storage.setInterestGroupTracking`.
+/// Return value of `Storage.setPrivateVerificationTokensTracking`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SetInterestGroupTrackingReturns {}
+pub struct SetPrivateVerificationTokensTrackingReturns {}
 
-impl crate::Command for SetInterestGroupTrackingParams {
-    const METHOD: &'static str = "Storage.setInterestGroupTracking";
-    type Response = SetInterestGroupTrackingReturns;
-}
-
-/// Parameters of `Storage.setInterestGroupAuctionTracking`.
-///
-/// Enables/Disables issuing of interestGroupAuctionEventOccurred and
-/// interestGroupAuctionNetworkRequestCreated.
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SetInterestGroupAuctionTrackingParams {
-    #[serde(rename = "enable")]
-    pub enable: bool,
-}
-
-/// Return value of `Storage.setInterestGroupAuctionTracking`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SetInterestGroupAuctionTrackingReturns {}
-
-impl crate::Command for SetInterestGroupAuctionTrackingParams {
-    const METHOD: &'static str = "Storage.setInterestGroupAuctionTracking";
-    type Response = SetInterestGroupAuctionTrackingReturns;
-}
-
-/// Parameters of `Storage.getSharedStorageMetadata`.
-///
-/// Gets metadata for an origin's shared storage.
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct GetSharedStorageMetadataParams {
-    #[serde(rename = "ownerOrigin")]
-    pub owner_origin: String,
-}
-
-/// Return value of `Storage.getSharedStorageMetadata`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct GetSharedStorageMetadataReturns {
-    #[serde(rename = "metadata")]
-    pub metadata: SharedStorageMetadata,
-}
-
-impl crate::Command for GetSharedStorageMetadataParams {
-    const METHOD: &'static str = "Storage.getSharedStorageMetadata";
-    type Response = GetSharedStorageMetadataReturns;
-}
-
-/// Parameters of `Storage.getSharedStorageEntries`.
-///
-/// Gets the entries in an given origin's shared storage.
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct GetSharedStorageEntriesParams {
-    #[serde(rename = "ownerOrigin")]
-    pub owner_origin: String,
-}
-
-/// Return value of `Storage.getSharedStorageEntries`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct GetSharedStorageEntriesReturns {
-    #[serde(rename = "entries")]
-    pub entries: Vec<SharedStorageEntry>,
-}
-
-impl crate::Command for GetSharedStorageEntriesParams {
-    const METHOD: &'static str = "Storage.getSharedStorageEntries";
-    type Response = GetSharedStorageEntriesReturns;
-}
-
-/// Parameters of `Storage.setSharedStorageEntry`.
-///
-/// Sets entry with `key` and `value` for a given origin's shared storage.
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SetSharedStorageEntryParams {
-    #[serde(rename = "ownerOrigin")]
-    pub owner_origin: String,
-    #[serde(rename = "key")]
-    pub key: String,
-    #[serde(rename = "value")]
-    pub value: String,
-    /// If `ignoreIfPresent` is included and true, then only sets the entry if
-    /// `key` doesn't already exist.
-    #[serde(
-        rename = "ignoreIfPresent",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub ignore_if_present: Option<bool>,
-}
-
-/// Return value of `Storage.setSharedStorageEntry`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SetSharedStorageEntryReturns {}
-
-impl crate::Command for SetSharedStorageEntryParams {
-    const METHOD: &'static str = "Storage.setSharedStorageEntry";
-    type Response = SetSharedStorageEntryReturns;
-}
-
-/// Parameters of `Storage.deleteSharedStorageEntry`.
-///
-/// Deletes entry for `key` (if it exists) for a given origin's shared storage.
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct DeleteSharedStorageEntryParams {
-    #[serde(rename = "ownerOrigin")]
-    pub owner_origin: String,
-    #[serde(rename = "key")]
-    pub key: String,
-}
-
-/// Return value of `Storage.deleteSharedStorageEntry`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct DeleteSharedStorageEntryReturns {}
-
-impl crate::Command for DeleteSharedStorageEntryParams {
-    const METHOD: &'static str = "Storage.deleteSharedStorageEntry";
-    type Response = DeleteSharedStorageEntryReturns;
-}
-
-/// Parameters of `Storage.clearSharedStorageEntries`.
-///
-/// Clears all entries for a given origin's shared storage.
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct ClearSharedStorageEntriesParams {
-    #[serde(rename = "ownerOrigin")]
-    pub owner_origin: String,
-}
-
-/// Return value of `Storage.clearSharedStorageEntries`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct ClearSharedStorageEntriesReturns {}
-
-impl crate::Command for ClearSharedStorageEntriesParams {
-    const METHOD: &'static str = "Storage.clearSharedStorageEntries";
-    type Response = ClearSharedStorageEntriesReturns;
-}
-
-/// Parameters of `Storage.resetSharedStorageBudget`.
-///
-/// Resets the budget for `ownerOrigin` by clearing all budget withdrawals.
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct ResetSharedStorageBudgetParams {
-    #[serde(rename = "ownerOrigin")]
-    pub owner_origin: String,
-}
-
-/// Return value of `Storage.resetSharedStorageBudget`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct ResetSharedStorageBudgetReturns {}
-
-impl crate::Command for ResetSharedStorageBudgetParams {
-    const METHOD: &'static str = "Storage.resetSharedStorageBudget";
-    type Response = ResetSharedStorageBudgetReturns;
-}
-
-/// Parameters of `Storage.setSharedStorageTracking`.
-///
-/// Enables/disables issuing of sharedStorageAccessed events.
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SetSharedStorageTrackingParams {
-    #[serde(rename = "enable")]
-    pub enable: bool,
-}
-
-/// Return value of `Storage.setSharedStorageTracking`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SetSharedStorageTrackingReturns {}
-
-impl crate::Command for SetSharedStorageTrackingParams {
-    const METHOD: &'static str = "Storage.setSharedStorageTracking";
-    type Response = SetSharedStorageTrackingReturns;
+impl crate::Command for SetPrivateVerificationTokensTrackingParams {
+    const METHOD: &'static str = "Storage.setPrivateVerificationTokensTracking";
+    type Response = SetPrivateVerificationTokensTrackingReturns;
 }
 
 /// Parameters of `Storage.setStorageBucketTracking`.
@@ -1608,141 +727,6 @@ pub struct RunBounceTrackingMitigationsReturns {
 impl crate::Command for RunBounceTrackingMitigationsParams {
     const METHOD: &'static str = "Storage.runBounceTrackingMitigations";
     type Response = RunBounceTrackingMitigationsReturns;
-}
-
-/// Parameters of `Storage.setAttributionReportingLocalTestingMode`.
-///
-/// https://wicg.github.io/attribution-reporting-api/
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SetAttributionReportingLocalTestingModeParams {
-    /// If enabled, noise is suppressed and reports are sent immediately.
-    #[serde(rename = "enabled")]
-    pub enabled: bool,
-}
-
-/// Return value of `Storage.setAttributionReportingLocalTestingMode`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SetAttributionReportingLocalTestingModeReturns {}
-
-impl crate::Command for SetAttributionReportingLocalTestingModeParams {
-    const METHOD: &'static str = "Storage.setAttributionReportingLocalTestingMode";
-    type Response = SetAttributionReportingLocalTestingModeReturns;
-}
-
-/// Parameters of `Storage.setAttributionReportingTracking`.
-///
-/// Enables/disables issuing of Attribution Reporting events.
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SetAttributionReportingTrackingParams {
-    #[serde(rename = "enable")]
-    pub enable: bool,
-}
-
-/// Return value of `Storage.setAttributionReportingTracking`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SetAttributionReportingTrackingReturns {}
-
-impl crate::Command for SetAttributionReportingTrackingParams {
-    const METHOD: &'static str = "Storage.setAttributionReportingTracking";
-    type Response = SetAttributionReportingTrackingReturns;
-}
-
-/// Parameters of `Storage.sendPendingAttributionReports`.
-///
-/// Sends all pending Attribution Reports immediately, regardless of their
-/// scheduled report time.
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SendPendingAttributionReportsParams {}
-
-/// Return value of `Storage.sendPendingAttributionReports`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SendPendingAttributionReportsReturns {
-    /// The number of reports that were sent.
-    #[serde(rename = "numSent")]
-    pub num_sent: i64,
-}
-
-impl crate::Command for SendPendingAttributionReportsParams {
-    const METHOD: &'static str = "Storage.sendPendingAttributionReports";
-    type Response = SendPendingAttributionReportsReturns;
-}
-
-/// Parameters of `Storage.getRelatedWebsiteSets`.
-///
-/// Returns the effective Related Website Sets in use by this profile for the browser
-/// session. The effective Related Website Sets will not change during a browser session.
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct GetRelatedWebsiteSetsParams {}
-
-/// Return value of `Storage.getRelatedWebsiteSets`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct GetRelatedWebsiteSetsReturns {
-    #[serde(rename = "sets")]
-    pub sets: Vec<RelatedWebsiteSet>,
-}
-
-impl crate::Command for GetRelatedWebsiteSetsParams {
-    const METHOD: &'static str = "Storage.getRelatedWebsiteSets";
-    type Response = GetRelatedWebsiteSetsReturns;
-}
-
-/// Parameters of `Storage.getAffectedUrlsForThirdPartyCookieMetadata`.
-///
-/// Returns the list of URLs from a page and its embedded resources that match
-/// existing grace period URL pattern rules.
-/// https://developers.google.com/privacy-sandbox/cookies/temporary-exceptions/grace-period
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct GetAffectedUrlsForThirdPartyCookieMetadataParams {
-    /// The URL of the page currently being visited.
-    #[serde(rename = "firstPartyUrl")]
-    pub first_party_url: String,
-    /// The list of embedded resource URLs from the page.
-    #[serde(rename = "thirdPartyUrls")]
-    pub third_party_urls: Vec<String>,
-}
-
-/// Return value of `Storage.getAffectedUrlsForThirdPartyCookieMetadata`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct GetAffectedUrlsForThirdPartyCookieMetadataReturns {
-    /// Array of matching URLs. If there is a primary pattern match for the first-
-    /// party URL, only the first-party URL is returned in the array.
-    #[serde(rename = "matchedUrls")]
-    pub matched_urls: Vec<String>,
-}
-
-impl crate::Command for GetAffectedUrlsForThirdPartyCookieMetadataParams {
-    const METHOD: &'static str = "Storage.getAffectedUrlsForThirdPartyCookieMetadata";
-    type Response = GetAffectedUrlsForThirdPartyCookieMetadataReturns;
-}
-
-/// Parameters of `Storage.setProtectedAudienceKAnonymity`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SetProtectedAudienceKAnonymityParams {
-    #[serde(rename = "owner")]
-    pub owner: String,
-    #[serde(rename = "name")]
-    pub name: String,
-    #[serde(rename = "hashes")]
-    pub hashes: Vec<String>,
-}
-
-/// Return value of `Storage.setProtectedAudienceKAnonymity`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SetProtectedAudienceKAnonymityReturns {}
-
-impl crate::Command for SetProtectedAudienceKAnonymityParams {
-    const METHOD: &'static str = "Storage.setProtectedAudienceKAnonymity";
-    type Response = SetProtectedAudienceKAnonymityReturns;
 }
 
 /// Payload of the `Storage.cacheStorageContentUpdated` event.
@@ -1834,174 +818,6 @@ impl crate::Event for IndexedDBListUpdatedEvent {
     const NAME: &'static str = "Storage.indexedDBListUpdated";
 }
 
-/// Payload of the `Storage.interestGroupAccessed` event.
-///
-/// One of the interest groups was accessed. Note that these events are global
-/// to all targets sharing an interest group store.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct InterestGroupAccessedEvent {
-    #[serde(rename = "accessTime")]
-    pub access_time: super::network::TimeSinceEpoch,
-    #[serde(rename = "type")]
-    pub r#type: InterestGroupAccessType,
-    #[serde(rename = "ownerOrigin")]
-    pub owner_origin: String,
-    #[serde(rename = "name")]
-    pub name: String,
-    /// For topLevelBid/topLevelAdditionalBid, and when appropriate,
-    /// win and additionalBidWin
-    #[serde(
-        rename = "componentSellerOrigin",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub component_seller_origin: Option<String>,
-    /// For bid or somethingBid event, if done locally and not on a server.
-    #[serde(rename = "bid", default, skip_serializing_if = "Option::is_none")]
-    pub bid: Option<f64>,
-    #[serde(
-        rename = "bidCurrency",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub bid_currency: Option<String>,
-    /// For non-global events --- links to interestGroupAuctionEvent
-    #[serde(
-        rename = "uniqueAuctionId",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub unique_auction_id: Option<InterestGroupAuctionId>,
-}
-
-impl crate::Event for InterestGroupAccessedEvent {
-    const NAME: &'static str = "Storage.interestGroupAccessed";
-}
-
-/// Payload of the `Storage.interestGroupAuctionEventOccurred` event.
-///
-/// An auction involving interest groups is taking place. These events are
-/// target-specific.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct InterestGroupAuctionEventOccurredEvent {
-    #[serde(rename = "eventTime")]
-    pub event_time: super::network::TimeSinceEpoch,
-    #[serde(rename = "type")]
-    pub r#type: InterestGroupAuctionEventType,
-    #[serde(rename = "uniqueAuctionId")]
-    pub unique_auction_id: InterestGroupAuctionId,
-    /// Set for child auctions.
-    #[serde(
-        rename = "parentAuctionId",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub parent_auction_id: Option<InterestGroupAuctionId>,
-    /// Set for started and configResolved
-    #[serde(
-        rename = "auctionConfig",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub auction_config: Option<serde_json::Value>,
-}
-
-impl crate::Event for InterestGroupAuctionEventOccurredEvent {
-    const NAME: &'static str = "Storage.interestGroupAuctionEventOccurred";
-}
-
-/// Payload of the `Storage.interestGroupAuctionNetworkRequestCreated` event.
-///
-/// Specifies which auctions a particular network fetch may be related to, and
-/// in what role. Note that it is not ordered with respect to
-/// Network.requestWillBeSent (but will happen before loadingFinished
-/// loadingFailed).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct InterestGroupAuctionNetworkRequestCreatedEvent {
-    #[serde(rename = "type")]
-    pub r#type: InterestGroupAuctionFetchType,
-    #[serde(rename = "requestId")]
-    pub request_id: super::network::RequestId,
-    /// This is the set of the auctions using the worklet that issued this
-    /// request.  In the case of trusted signals, it's possible that only some of
-    /// them actually care about the keys being queried.
-    #[serde(rename = "auctions")]
-    pub auctions: Vec<InterestGroupAuctionId>,
-}
-
-impl crate::Event for InterestGroupAuctionNetworkRequestCreatedEvent {
-    const NAME: &'static str = "Storage.interestGroupAuctionNetworkRequestCreated";
-}
-
-/// Payload of the `Storage.sharedStorageAccessed` event.
-///
-/// Shared storage was accessed by the associated page.
-/// The following parameters are included in all events.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SharedStorageAccessedEvent {
-    /// Time of the access.
-    #[serde(rename = "accessTime")]
-    pub access_time: super::network::TimeSinceEpoch,
-    /// Enum value indicating the access scope.
-    #[serde(rename = "scope")]
-    pub scope: SharedStorageAccessScope,
-    /// Enum value indicating the Shared Storage API method invoked.
-    #[serde(rename = "method")]
-    pub method: SharedStorageAccessMethod,
-    /// DevTools Frame Token for the primary frame tree's root.
-    #[serde(rename = "mainFrameId")]
-    pub main_frame_id: super::page::FrameId,
-    /// Serialization of the origin owning the Shared Storage data.
-    #[serde(rename = "ownerOrigin")]
-    pub owner_origin: String,
-    /// Serialization of the site owning the Shared Storage data.
-    #[serde(rename = "ownerSite")]
-    pub owner_site: String,
-    /// The sub-parameters wrapped by `params` are all optional and their
-    /// presence/absence depends on `type`.
-    #[serde(rename = "params")]
-    pub params: SharedStorageAccessParams,
-}
-
-impl crate::Event for SharedStorageAccessedEvent {
-    const NAME: &'static str = "Storage.sharedStorageAccessed";
-}
-
-/// Payload of the `Storage.sharedStorageWorkletOperationExecutionFinished` event.
-///
-/// A shared storage run or selectURL operation finished its execution.
-/// The following parameters are included in all events.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SharedStorageWorkletOperationExecutionFinishedEvent {
-    /// Time that the operation finished.
-    #[serde(rename = "finishedTime")]
-    pub finished_time: super::network::TimeSinceEpoch,
-    /// Time, in microseconds, from start of shared storage JS API call until
-    /// end of operation execution in the worklet.
-    #[serde(rename = "executionTime")]
-    pub execution_time: i64,
-    /// Enum value indicating the Shared Storage API method invoked.
-    #[serde(rename = "method")]
-    pub method: SharedStorageAccessMethod,
-    /// ID of the operation call.
-    #[serde(rename = "operationId")]
-    pub operation_id: String,
-    /// Hex representation of the DevTools token used as the TargetID for the
-    /// associated shared storage worklet.
-    #[serde(rename = "workletTargetId")]
-    pub worklet_target_id: super::target::TargetID,
-    /// DevTools Frame Token for the primary frame tree's root.
-    #[serde(rename = "mainFrameId")]
-    pub main_frame_id: super::page::FrameId,
-    /// Serialization of the origin owning the Shared Storage data.
-    #[serde(rename = "ownerOrigin")]
-    pub owner_origin: String,
-}
-
-impl crate::Event for SharedStorageWorkletOperationExecutionFinishedEvent {
-    const NAME: &'static str = "Storage.sharedStorageWorkletOperationExecutionFinished";
-}
-
 /// Payload of the `Storage.storageBucketCreatedOrUpdated` event.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StorageBucketCreatedOrUpdatedEvent {
@@ -2024,95 +840,14 @@ impl crate::Event for StorageBucketDeletedEvent {
     const NAME: &'static str = "Storage.storageBucketDeleted";
 }
 
-/// Payload of the `Storage.attributionReportingSourceRegistered` event.
+/// Payload of the `Storage.privateVerificationTokensUpdated` event.
 ///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AttributionReportingSourceRegisteredEvent {
-    #[serde(rename = "registration")]
-    pub registration: AttributionReportingSourceRegistration,
-    #[serde(rename = "result")]
-    pub result: AttributionReportingSourceRegistrationResult,
-}
-
-impl crate::Event for AttributionReportingSourceRegisteredEvent {
-    const NAME: &'static str = "Storage.attributionReportingSourceRegistered";
-}
-
-/// Payload of the `Storage.attributionReportingTriggerRegistered` event.
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AttributionReportingTriggerRegisteredEvent {
-    #[serde(rename = "registration")]
-    pub registration: AttributionReportingTriggerRegistration,
-    #[serde(rename = "eventLevel")]
-    pub event_level: AttributionReportingEventLevelResult,
-    #[serde(rename = "aggregatable")]
-    pub aggregatable: AttributionReportingAggregatableResult,
-}
-
-impl crate::Event for AttributionReportingTriggerRegisteredEvent {
-    const NAME: &'static str = "Storage.attributionReportingTriggerRegistered";
-}
-
-/// Payload of the `Storage.attributionReportingReportSent` event.
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AttributionReportingReportSentEvent {
-    #[serde(rename = "url")]
-    pub url: String,
-    #[serde(rename = "body")]
-    pub body: serde_json::Value,
-    #[serde(rename = "result")]
-    pub result: AttributionReportingReportResult,
-    /// If result is `sent`, populated with net/HTTP status.
-    #[serde(rename = "netError", default, skip_serializing_if = "Option::is_none")]
-    pub net_error: Option<i64>,
-    #[serde(
-        rename = "netErrorName",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub net_error_name: Option<String>,
-    #[serde(
-        rename = "httpStatusCode",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub http_status_code: Option<i64>,
-}
-
-impl crate::Event for AttributionReportingReportSentEvent {
-    const NAME: &'static str = "Storage.attributionReportingReportSent";
-}
-
-/// Payload of the `Storage.attributionReportingVerboseDebugReportSent` event.
+/// Private Verification Tokens have been stored or deleted.
 ///
 /// **Experimental.**
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct AttributionReportingVerboseDebugReportSentEvent {
-    #[serde(rename = "url")]
-    pub url: String,
-    #[serde(rename = "body", default, skip_serializing_if = "Option::is_none")]
-    pub body: Option<Vec<serde_json::Value>>,
-    #[serde(rename = "netError", default, skip_serializing_if = "Option::is_none")]
-    pub net_error: Option<i64>,
-    #[serde(
-        rename = "netErrorName",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub net_error_name: Option<String>,
-    #[serde(
-        rename = "httpStatusCode",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub http_status_code: Option<i64>,
-}
+pub struct PrivateVerificationTokensUpdatedEvent {}
 
-impl crate::Event for AttributionReportingVerboseDebugReportSentEvent {
-    const NAME: &'static str = "Storage.attributionReportingVerboseDebugReportSent";
+impl crate::Event for PrivateVerificationTokensUpdatedEvent {
+    const NAME: &'static str = "Storage.privateVerificationTokensUpdated";
 }

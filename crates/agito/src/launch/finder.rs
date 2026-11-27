@@ -50,11 +50,20 @@ pub fn default_install_root() -> PathBuf {
     home.join(".agito").join("browsers")
 }
 
+/// The marker `agito install` writes for `channel` under `root`, `.installed.<channel>`. It
+/// holds the path of the executable it installed. Builds unpack into layouts of their own and
+/// several versions can sit side by side, so the marker, not a search, says which to launch.
+pub fn marker_path(root: &Path, channel: BrowserChannel) -> PathBuf {
+    root.join(format!(".installed.{}", channel.name()))
+}
+
 /// The executable recorded by `agito install` for `channel`, if it still exists.
-/// The marker file `.installed.<channel>` holds the executable's path.
 pub fn installed(root: &Path, channel: BrowserChannel) -> Option<PathBuf> {
-    let marker = root.join(format!(".installed.{}", channel.name()));
-    let path = PathBuf::from(std::fs::read_to_string(marker).ok()?.trim());
+    let path = PathBuf::from(
+        std::fs::read_to_string(marker_path(root, channel))
+            .ok()?
+            .trim(),
+    );
     path.is_file().then_some(path)
 }
 

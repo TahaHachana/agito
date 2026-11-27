@@ -8,7 +8,8 @@ registered through the same plugin API third-party code uses.
 agito is a Rust port of Motus, a .NET browser automation framework. It is early (0.2):
 Chromium-based browsers only. See
 [docs/parity.md](https://github.com/TahaHachana/agito/blob/main/docs/parity.md) for what
-has been ported so far.
+has been ported so far and [docs/roadmap.md](https://github.com/TahaHachana/agito/blob/main/docs/roadmap.md)
+for what comes next.
 
 ## A test
 
@@ -125,6 +126,26 @@ let png = page.screenshot(Default::default()).await?;
 browser.close().await?;
 ```
 
+## Installing a browser
+
+agito launches an installed Chrome, Edge or Chromium. To download one for agito instead:
+
+```bash
+cargo install agito-cli
+agito install                         # the current stable Chrome for Testing
+agito install --revision 131          # the newest build of a milestone
+agito install --revision 131.0.6778.85
+```
+
+Builds go to `~/.agito/browsers`, and the launcher prefers the last one installed there.
+
+The same tool captures pages:
+
+```bash
+agito screenshot example.com -o page.png --full-page --hide-banners
+agito pdf report.html -o report.pdf --background
+```
+
 ## Configuration
 
 Settings come from three places, each overriding the one before:
@@ -153,18 +174,20 @@ Variables: `AGITO_HEADLESS`, `AGITO_CHANNEL`, `AGITO_SLOWMO`, `AGITO_LAUNCH_TIME
 | Crate | What it holds |
 |---|---|
 | `crates/agito` | The engine: launcher, transport, browser/context/page, locators, input, selectors, plugins, `expect`, test harness |
+| `crates/agito-cli` | The `agito` command-line tool: `install`, `screenshot`, `pdf` |
 | `crates/agito-macros` | `#[agito::test]` and `#[agito::plugin]` |
 | `crates/agito-protocol` | CDP bindings generated from the vendored protocol JSON |
 | `samples/agito-samples` | Example page object and tests, ported from Motus.Samples |
-| `xtask` | Developer tasks: `cargo xtask codegen` |
+| `xtask` | Developer tasks: `cargo xtask codegen`, `cargo xtask update-protocol` |
 
 ## Development
 
 ```bash
 cargo test --workspace                     # unit tests, no browser needed
-cargo test -p agito -p agito-samples \
-  --features agito/integration,agito-samples/integration   # drives a real Chrome/Chromium
+cargo test -p agito -p agito-samples -p agito-cli \
+  --features agito/integration,agito-samples/integration,agito-cli/integration   # drives a real Chrome/Chromium
 cargo xtask codegen [--check]              # regenerate (or verify) the CDP bindings
+cargo xtask update-protocol [--dry-run]    # vendor the latest devtools-protocol and regenerate
 cargo run -p agito --example screenshot -- https://example.com shot.png
 ```
 

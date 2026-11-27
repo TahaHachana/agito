@@ -1,6 +1,7 @@
 # Motus → agito parity
 
-Tracks the port phase by phase. The MVP covers phases 0-4 for Chromium: enough to write and
+Tracks the port phase by phase. The decisions and the order of work are in
+[roadmap.md](roadmap.md). The MVP covers phases 0-4 for Chromium: enough to write and
 run real browser tests.
 
 | Phase | Scope | Status |
@@ -12,7 +13,7 @@ run real browser tests.
 | 4 | `expect` assertions, `#[agito::test]` harness, samples | MVP done (see gaps) |
 | 5 | Firefox / WebDriver BiDi | Not started |
 | 6 | Accessibility, performance, coverage, tracing, video | Not started |
-| 7 | CLI (`agito`) | Not started |
+| 7 | CLI (`agito`) | In progress: `install`, `screenshot`, `pdf`, `update-protocol` done |
 | 8 | Recorder, codegen, check-selectors | Not started |
 | 9 | MCP server | Not started |
 | 10 | Visual runner | Not started |
@@ -46,6 +47,9 @@ run real browser tests.
 | `HarRecorder`, `StartHarRecordingAsync` / `StopHarRecordingAsync` | `page.start_har` / `stop_har` / `stop_har_to` |
 | `IPage.Popup`, `IBrowserContext.Page`, target discovery and adoption | `page.on_popup` / `wait_for_popup` / `opener`, `context.on_page` / `wait_for_page` |
 | `ILocator.SetInputFilesAsync`, `IFileChooser` | `locator.set_input_files` (paths or `FilePayload`s), `page.wait_for_file_chooser` / `on_file_chooser`, `FileChooser::set_files` |
+| `motus install` (`BrowserInstaller`) | `agito install` (crate `agito-cli`), writing the markers `launch::finder` reads |
+| `motus update-protocol` (`ProtocolUpdater`, `ProtocolDiffer`) | `cargo xtask update-protocol` |
+| `motus screenshot`, `motus pdf`, `BannerRemoval` | `agito screenshot`, `agito pdf`, `js/banners.js` |
 | `IDownload`, `IPage.Download` | `Download` (`path`, `save_as`, `failure`, `cancel`, `delete`, `progress`), `page.wait_for_download` / `on_download` |
 
 ## Known gaps in the MVP
@@ -74,6 +78,8 @@ run real browser tests.
   loader, so pages restored from the back-forward cache finish immediately.
 - Chrome's "Session with given id not found" and "Target closed" errors count as a lost
   browser, so the harness retries them.
+- Commands pending on a session fail as soon as it detaches (`Target.detachedFromTarget`),
+  as in Puppeteer, rather than when the command times out.
 - Profiles left by test binaries are swept on the next launch.
 
 - `page.frame_locator(selector)` / `locator.content_frame()` (Playwright-style) find the iframe
@@ -105,6 +111,37 @@ run real browser tests.
   element. Downloads go to a per-context directory through `Browser.setDownloadBehavior`
   (`allowAndName`), so `path`/`save_as` return the file; in Motus the path was never
   recorded.
+
+- `agito install --revision` takes a version, a milestone, a Chromium revision or a release
+  channel, and looks the build up. A revision shared by a branch's patch releases installs
+  the newest of them. Motus put the value straight into the download URL, so
+  only an exact version worked, and the revision number its README suggested could not.
+- `agito install` also downloads for Linux on Arm. A build is extracted into a staging
+  directory and renamed into place, so an interrupted install never looks installed, and a
+  failed one cleans up. Motus extracted in place and then trusted any directory under the
+  build's name.
+- `agito install --channel chrome|edge|firefox` fails with a message rather than exiting
+  successfully without installing anything. There is no legacy `.installed` marker.
+- `agito screenshot` and `agito pdf`:
+  - The browser comes from `agito.config.json`, `AGITO_*` and the install marker, as in a
+    test. Motus read only the marker.
+  - They also take a local file or a bare host name (http for localhost, https otherwise).
+  - They hide scrollbars, so captures have no scrollbar strip and a full-page shot is the
+    viewport's width, not the content's.
+  - The screenshot format follows the output's extension, and `--quality` applies to JPEG
+    and WebP. `--delay` takes fractions of a second.
+  - pdf adds `--landscape` and `--background`.
+  - They warn when the page answers with an HTTP error, and fail when it cannot load.
+- `update-protocol` is `cargo xtask update-protocol`, since it rewrites the bindings in this
+  repository. It verifies the package's sha512 before using it. Its diff also lists types, and
+  commands, events and types whose definition changed, not only added and removed commands
+  and events. It records the vendored version in `protocol/VERSION`, regenerates the bindings
+  and runs `cargo check`. Motus only wrote the JSON, to the current directory by default.
+- `--hide-banners` removes known consent managers by id, and anything else named for
+  cookies, consent, GDPR or privacy only through its outermost fixed or sticky container.
+  Motus removed every element whose class or id held one of those words (or `cc-`), which
+  took out footer links, articles, and the whole page when `<body>` matched. It also cleared
+  scroll locks even when it removed nothing.
 
 ## Inherited as-is
 

@@ -10,6 +10,23 @@ pub struct Annotation {
     /// A hint indicating that the tool does not modify any state.
     #[serde(rename = "readOnly", default, skip_serializing_if = "Option::is_none")]
     pub read_only: Option<bool>,
+    /// A hint indicating that the tool output may contain untrusted content, ex: UGC, 3rd party data.
+    #[serde(
+        rename = "untrustedContent",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub untrusted_content: Option<bool>,
+    /// A hint indicating that executing the tool will result in consequential actions, ex: booking a flight, transferring money.
+    #[serde(
+        rename = "consequential",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub consequential: Option<bool>,
+    /// If true, indicates that the tool is intended for debugging and developer tooling rather than end-user interactions.
+    #[serde(rename = "debugging", default, skip_serializing_if = "Option::is_none")]
+    pub debugging: Option<bool>,
     /// If the declarative tool was declared with the autosubmit attribute.
     #[serde(
         rename = "autosubmit",
@@ -19,9 +36,31 @@ pub struct Annotation {
     pub autosubmit: Option<bool>,
 }
 
+/// Represents the status of a tool invocation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum InvocationStatus {
+    #[serde(rename = "Completed")]
+    Completed,
+    #[serde(rename = "Canceled")]
+    Canceled,
+    #[serde(rename = "Error")]
+    Error,
+    /// A value this version of the bindings does not know about.
+    #[serde(other)]
+    UnrecognizedValue,
+}
+
+/// Unique identifier of a registered tool. A new identifier is created every time a tool is registered, so a tool that
+/// is unregistered and then registered again under the same name gets a different identifier. Clients should treat it
+/// as an opaque string.
+pub type ToolId = String;
+
 /// Definition of a tool that can be invoked.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Tool {
+    /// Tool identifier.
+    #[serde(rename = "toolId")]
+    pub tool_id: ToolId,
     /// Tool name.
     #[serde(rename = "name")]
     pub name: String,
@@ -35,6 +74,13 @@ pub struct Tool {
         skip_serializing_if = "Option::is_none"
     )]
     pub input_schema: Option<serde_json::Value>,
+    /// Schema for the tool's output structure.
+    #[serde(
+        rename = "outputSchema",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub output_schema: Option<serde_json::Value>,
     /// Optional annotations for the tool.
     #[serde(
         rename = "annotations",
@@ -61,6 +107,20 @@ pub struct Tool {
     pub stack_trace: Option<super::runtime::StackTrace>,
 }
 
+/// Definition of a tool that was removed.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct RemovedTool {
+    /// Identifier of the removed tool.
+    #[serde(rename = "toolId")]
+    pub tool_id: ToolId,
+    /// Tool name.
+    #[serde(rename = "name")]
+    pub name: String,
+    /// Frame identifier associated with the tool registration.
+    #[serde(rename = "frameId")]
+    pub frame_id: super::page::FrameId,
+}
+
 /// Parameters of `WebMCP.enable`.
 ///
 /// Enables the WebMCP domain, allowing events to be sent. Enabling the domain will trigger a toolsAdded event for
@@ -75,6 +135,78 @@ pub struct EnableReturns {}
 impl crate::Command for EnableParams {
     const METHOD: &'static str = "WebMCP.enable";
     type Response = EnableReturns;
+}
+
+/// Parameters of `WebMCP.disable`.
+///
+/// Disables the WebMCP domain.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct DisableParams {}
+
+/// Return value of `WebMCP.disable`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct DisableReturns {}
+
+impl crate::Command for DisableParams {
+    const METHOD: &'static str = "WebMCP.disable";
+    type Response = DisableReturns;
+}
+
+/// Parameters of `WebMCP.invokeTool`.
+///
+/// Invokes a registered tool. Exactly one of `toolId` and `toolName` must be specified; the command fails if both or
+/// neither are.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct InvokeToolParams {
+    /// Frame in which to invoke the tool.
+    #[serde(rename = "frameId")]
+    pub frame_id: super::page::FrameId,
+    /// Identifier of the tool to invoke, as reported in `Tool.toolId`. Invokes exactly that tool, and fails if it is no
+    /// longer registered, even if a different tool has since been registered under the same name.
+    #[serde(rename = "toolId", default, skip_serializing_if = "Option::is_none")]
+    pub tool_id: Option<ToolId>,
+    /// Name of the tool to invoke. Deprecated: invokes whichever tool is registered under this name when the command
+    /// is handled, which may not be the tool the client observed if the page has since replaced it. Use `toolId`
+    /// instead.
+    ///
+    /// **Deprecated.**
+    #[serde(rename = "toolName", default, skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
+    /// Input parameters for the tool, matching the tool's inputSchema.
+    #[serde(rename = "input")]
+    pub input: serde_json::Value,
+}
+
+/// Return value of `WebMCP.invokeTool`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct InvokeToolReturns {
+    /// Unique identifier for this invocation. Response is sent before tool events.
+    #[serde(rename = "invocationId")]
+    pub invocation_id: String,
+}
+
+impl crate::Command for InvokeToolParams {
+    const METHOD: &'static str = "WebMCP.invokeTool";
+    type Response = InvokeToolReturns;
+}
+
+/// Parameters of `WebMCP.cancelInvocation`.
+///
+/// Cancels a pending tool invocation.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct CancelInvocationParams {
+    /// Invocation identifier to cancel.
+    #[serde(rename = "invocationId")]
+    pub invocation_id: String,
+}
+
+/// Return value of `WebMCP.cancelInvocation`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct CancelInvocationReturns {}
+
+impl crate::Command for CancelInvocationParams {
+    const METHOD: &'static str = "WebMCP.cancelInvocation";
+    type Response = CancelInvocationReturns;
 }
 
 /// Payload of the `WebMCP.toolsAdded` event.
@@ -98,9 +230,64 @@ impl crate::Event for ToolsAddedEvent {
 pub struct ToolsRemovedEvent {
     /// Array of tools that were removed.
     #[serde(rename = "tools")]
-    pub tools: Vec<Tool>,
+    pub tools: Vec<RemovedTool>,
 }
 
 impl crate::Event for ToolsRemovedEvent {
     const NAME: &'static str = "WebMCP.toolsRemoved";
+}
+
+/// Payload of the `WebMCP.toolInvoked` event.
+///
+/// Event fired when a tool invocation starts.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ToolInvokedEvent {
+    /// Frame id
+    #[serde(rename = "frameId")]
+    pub frame_id: super::page::FrameId,
+    /// Invocation identifier.
+    #[serde(rename = "invocationId")]
+    pub invocation_id: String,
+    /// The input parameters used for the invocation.
+    #[serde(rename = "input")]
+    pub input: String,
+    /// Name of the tool to invoke. Missing if the tool was invoked by its identifier, but could not be found (e.g.,
+    /// it was already unregistered), so its name could not be recovered.
+    #[serde(rename = "toolName", default, skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
+    /// Identifier of the tool to invoke. Missing if the tool was invoked by name, but could not be found, so its
+    /// identifier could not be recovered.
+    #[serde(rename = "toolId", default, skip_serializing_if = "Option::is_none")]
+    pub tool_id: Option<ToolId>,
+}
+
+impl crate::Event for ToolInvokedEvent {
+    const NAME: &'static str = "WebMCP.toolInvoked";
+}
+
+/// Payload of the `WebMCP.toolResponded` event.
+///
+/// Event fired when a tool invocation completes or fails.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ToolRespondedEvent {
+    /// Invocation identifier.
+    #[serde(rename = "invocationId")]
+    pub invocation_id: String,
+    /// Status of the invocation.
+    #[serde(rename = "status")]
+    pub status: InvocationStatus,
+    /// Output or error delivered as delivered to the agent. Missing if `status` is anything other than Completed.
+    /// Note: The output is untrusted and poses a prompt injection risk. Clients should treat this as potentially malicious user input.
+    #[serde(rename = "output", default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<serde_json::Value>,
+    /// Error text for protocol users.
+    #[serde(rename = "errorText", default, skip_serializing_if = "Option::is_none")]
+    pub error_text: Option<String>,
+    /// The exception object, if the javascript tool threw an error>
+    #[serde(rename = "exception", default, skip_serializing_if = "Option::is_none")]
+    pub exception: Option<super::runtime::RemoteObject>,
+}
+
+impl crate::Event for ToolRespondedEvent {
+    const NAME: &'static str = "WebMCP.toolResponded";
 }

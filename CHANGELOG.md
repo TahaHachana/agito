@@ -3,6 +3,20 @@
 ## Unreleased
 
 ### Added
+- The `agito` command-line tool (crate `agito-cli`), starting with `agito install`. It
+  downloads Chrome for Testing into `~/.agito/browsers`, where the launcher finds it with no
+  configuration. `--revision` picks the build by version (`131.0.6778.85`), milestone
+  (`131`), Chromium revision (`1368529`) or channel (`stable`, `beta`, `dev`, `canary`).
+  `--path` installs elsewhere.
+- `agito screenshot` and `agito pdf` capture a page in a fresh headless browser. They take a
+  URL, a local HTML file or a bare host name, with `--wait-until`, `--timeout`, `--delay` and
+  `--hide-banners`. Screenshots pick PNG, JPEG or WebP from the output's extension and take
+  `--full-page`, `--width`, `--height` and `--quality`. PDFs take `--width`, `--landscape` and
+  `--background`.
+- `cargo xtask update-protocol [--version <npm version>] [--dry-run]` vendors a
+  `devtools-protocol` release, shows what changed, regenerates the bindings and checks that
+  the workspace builds. `crates/agito-protocol/protocol/VERSION` records the vendored release
+  (0.0.1596832).
 - Uploads:
   - `locator.set_input_files` takes paths or in-memory `FilePayload`s, works on hidden
     inputs, and clears the input when given `InputFiles::none()`.
@@ -20,11 +34,21 @@
     anything, including its first request.
 
 ### Changed
+- The CDP bindings follow `devtools-protocol` 0.0.1756183 (from 0.0.1596832), adding the
+  `Ads`, `CrashReportContext`, `DigitalCredentials` and `FindInPage` domains. Chrome removed
+  86 definitions in that span, which `agito-protocol` drops too, a breaking change for code
+  using them: among them the Privacy Sandbox enrollment commands, the Storage interest-group
+  and shared-storage events and types, several Audits issue types, and
+  `Network.InterceptionId`.
 - New pages attach through browser-level auto-attach and start paused, so agito sets them up
   before they load anything. Tabs in contexts agito does not own are left running and
   detached.
 
 ### Fixed
+- A command still waiting for its answer when its page closed waited out the full 60s
+  command timeout, because Chrome does not answer commands on a target it is destroying. A
+  click on a button that closes its own window sometimes did this. Such commands now fail at
+  once with a target-closed error when the page's session detaches.
 - Clicks in out-of-process iframes that had to be scrolled into view sometimes missed. Chrome
   routes input to such frames through the compositor, which can lag a frame behind a scroll.
   agito now waits for the page to render after scrolling, then re-checks before clicking.

@@ -355,6 +355,31 @@ pub struct StartParams {
         skip_serializing_if = "Option::is_none"
     )]
     pub tracing_backend: Option<TracingBackend>,
+    /// Maximum width and height (in pixels) of each captured screenshot.
+    /// Only used when the `disabled-by-default-devtools.screenshot` category is
+    /// enabled. Defaults to 500. The combined memory footprint of screenshots
+    /// (`screenshotMaxSize` * `screenshotMaxSize` * 4 * `screenshotMaxCount`)
+    /// is clamped to the existing per-session budget.
+    ///
+    /// **Experimental.**
+    #[serde(
+        rename = "screenshotMaxSize",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub screenshot_max_size: Option<i64>,
+    /// Maximum number of screenshots captured during a single tracing session.
+    /// Only used when the `disabled-by-default-devtools.screenshot` category is
+    /// enabled. Defaults to 450. Clamped together with `screenshotMaxSize` to
+    /// stay within the per-session screenshot memory budget.
+    ///
+    /// **Experimental.**
+    #[serde(
+        rename = "screenshotMaxCount",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub screenshot_max_count: Option<i64>,
 }
 
 /// Return value of `Tracing.start`.

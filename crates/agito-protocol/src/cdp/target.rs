@@ -25,6 +25,9 @@ pub struct TargetInfo {
     /// Whether the target has an attached client.
     #[serde(rename = "attached")]
     pub attached: bool,
+    /// Id of the parent target, if any. For example, "iframe" target may have a "page" parent.
+    #[serde(rename = "parentId", default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<TargetID>,
     /// Opener target Id
     #[serde(rename = "openerId", default, skip_serializing_if = "Option::is_none")]
     pub opener_id: Option<TargetID>,
@@ -42,7 +45,8 @@ pub struct TargetInfo {
         skip_serializing_if = "Option::is_none"
     )]
     pub opener_frame_id: Option<super::page::FrameId>,
-    /// Id of the parent frame, only present for the "iframe" targets.
+    /// Id of the parent frame, present for "iframe" and "worker" targets. For nested workers,
+    /// this is the "ancestor" frame that created the first worker in the nested chain.
     ///
     /// **Experimental.**
     #[serde(
@@ -59,11 +63,27 @@ pub struct TargetInfo {
     )]
     pub browser_context_id: Option<super::browser::BrowserContextID>,
     /// Provides additional details for specific target types. For example, for
-    /// the type of "page", this may be set to "prerender".
+    /// the type of "page", this may be set to "prerender", and for "tab", this
+    /// may be set to "unloaded". An unloaded tab has a history entry, but no
+    /// document for it: for example, after the tab was discarded, after
+    /// session restore without load, or after the renderer crashed. The tab
+    /// stays unloaded until a new document commits. A new tab that has not
+    /// navigated is not unloaded. Target.targetInfoChanged reports changes of
+    /// this value for tabs.
     ///
     /// **Experimental.**
     #[serde(rename = "subtype", default, skip_serializing_if = "Option::is_none")]
     pub subtype: Option<String>,
+    /// Embedder-specific target metadata. This is only set for targets of
+    /// type "tab".
+    ///
+    /// **Experimental.**
+    #[serde(
+        rename = "embedderData",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub embedder_data: Option<serde_json::Value>,
 }
 
 /// A filter used by target query/discovery/auto-attach operations.
@@ -407,13 +427,11 @@ pub struct CreateTargetParams {
     /// **Experimental.**
     #[serde(rename = "hidden", default, skip_serializing_if = "Option::is_none")]
     pub hidden: Option<bool>,
-    /// If specified, the option is used to determine if the new target should
-    /// be focused or not. By default, the focus behavior depends on the
-    /// value of the background field. For example, background=false and focus=false
-    /// will result in the target tab being opened but the browser window remain
-    /// unchanged (if it was in the background, it will remain in the background)
-    /// and background=false with focus=undefined will result in the window being focused.
-    /// Using background: true and focus: true is not supported and will result in an error.
+    /// If specified, determines whether the new target should be focused.
+    /// By default, the focus behavior depends on the `background` parameter:
+    /// - If `background` is false (default) and `focus` is omitted, the new target is focused and the browser window is brought to the foreground.
+    /// - If `background` is false and `focus` is false, the target is opened but the browser window's focus remains unchanged (e.g., if the window was in the background, it stays there).
+    /// - If `background` is true, setting `focus` to true is not supported and will result in an error.
     ///
     /// **Experimental.**
     #[serde(rename = "focus", default, skip_serializing_if = "Option::is_none")]
@@ -716,8 +734,8 @@ pub struct OpenDevToolsParams {
     #[serde(rename = "targetId")]
     pub target_id: TargetID,
     /// The id of the panel we want DevTools to open initially. Currently
-    /// supported panels are elements, console, network, sources, resources
-    /// and performance.
+    /// supported panels are elements, console, network, sources, resources,
+    /// timeline, chrome-recorder, heap-profiler, lighthouse, and security.
     #[serde(rename = "panelId", default, skip_serializing_if = "Option::is_none")]
     pub panel_id: Option<String>,
 }

@@ -121,8 +121,6 @@ pub enum PermissionType {
     SpeakerSelection,
     #[serde(rename = "storageAccess")]
     StorageAccess,
-    #[serde(rename = "topLevelStorageAccess")]
-    TopLevelStorageAccess,
     #[serde(rename = "videoCapture")]
     VideoCapture,
     #[serde(rename = "vr")]
@@ -249,18 +247,6 @@ pub struct Histogram {
     /// Buckets.
     #[serde(rename = "buckets")]
     pub buckets: Vec<Bucket>,
-}
-
-/// **Experimental.**
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum PrivacySandboxAPI {
-    #[serde(rename = "BiddingAndAuctionServices")]
-    BiddingAndAuctionServices,
-    #[serde(rename = "TrustedKeyValue")]
-    TrustedKeyValue,
-    /// A value this version of the bindings does not know about.
-    #[serde(other)]
-    UnrecognizedValue,
 }
 
 /// Parameters of `Browser.setPermission`.
@@ -535,6 +521,38 @@ impl crate::Command for GetBrowserCommandLineParams {
     type Response = GetBrowserCommandLineReturns;
 }
 
+/// Parameters of `Browser.addMockCamera`.
+///
+/// Adds a mock camera in the shared video capture device list for
+/// test automation. The mock camera is not scoped to a particular page or
+/// frame and is removed when the DevTools session that created it disconnects.
+/// Returns success after the video capture service confirms registration.
+/// Does not wait for device-list updates or devicechange events in pages.
+/// Registration failures are reported as errors.
+///
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct AddMockCameraParams {
+    /// Required non-empty identifier for the mock camera within the current
+    /// DevTools session. Different sessions can use the same identifier
+    /// without replacing each other's cameras. This is not the
+    /// MediaDeviceInfo.deviceId exposed to the page.
+    /// An identifier that is already registered or being registered in this
+    /// session is rejected. The existing camera or registration attempt is
+    /// left unchanged, including any active streams.
+    #[serde(rename = "deviceId")]
+    pub device_id: String,
+}
+
+/// Return value of `Browser.addMockCamera`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct AddMockCameraReturns {}
+
+impl crate::Command for AddMockCameraParams {
+    const METHOD: &'static str = "Browser.addMockCamera";
+    type Response = AddMockCameraReturns;
+}
+
 /// Parameters of `Browser.getHistograms`.
 ///
 /// Get Chrome histograms.
@@ -749,56 +767,49 @@ impl crate::Command for ExecuteBrowserCommandParams {
     type Response = ExecuteBrowserCommandReturns;
 }
 
-/// Parameters of `Browser.addPrivacySandboxEnrollmentOverride`.
+/// Parameters of `Browser.getGlobalPrivacyControl`.
 ///
-/// Allows a site to use privacy sandbox features that require enrollment
-/// without the site actually being enrolled. Only supported on page targets.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct AddPrivacySandboxEnrollmentOverrideParams {
-    #[serde(rename = "url")]
-    pub url: String,
-}
-
-/// Return value of `Browser.addPrivacySandboxEnrollmentOverride`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct AddPrivacySandboxEnrollmentOverrideReturns {}
-
-impl crate::Command for AddPrivacySandboxEnrollmentOverrideParams {
-    const METHOD: &'static str = "Browser.addPrivacySandboxEnrollmentOverride";
-    type Response = AddPrivacySandboxEnrollmentOverrideReturns;
-}
-
-/// Parameters of `Browser.addPrivacySandboxCoordinatorKeyConfig`.
+/// Gets the current globally-applied privacy control status
+/// See https://www.w3.org/TR/gpc/#get-global-privacy-control
 ///
-/// Configures encryption keys used with a given privacy sandbox API to talk
-/// to a trusted coordinator.  Since this is intended for test automation only,
-/// coordinatorOrigin must be a .test domain. No existing coordinator
-/// configuration for the origin may exist.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AddPrivacySandboxCoordinatorKeyConfigParams {
-    #[serde(rename = "api")]
-    pub api: PrivacySandboxAPI,
-    #[serde(rename = "coordinatorOrigin")]
-    pub coordinator_origin: String,
-    #[serde(rename = "keyConfig")]
-    pub key_config: String,
-    /// BrowserContext to perform the action in. When omitted, default browser
-    /// context is used.
-    #[serde(
-        rename = "browserContextId",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub browser_context_id: Option<BrowserContextID>,
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GetGlobalPrivacyControlParams {}
+
+/// Return value of `Browser.getGlobalPrivacyControl`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GetGlobalPrivacyControlReturns {
+    #[serde(rename = "gpc")]
+    pub gpc: bool,
 }
 
-/// Return value of `Browser.addPrivacySandboxCoordinatorKeyConfig`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct AddPrivacySandboxCoordinatorKeyConfigReturns {}
+impl crate::Command for GetGlobalPrivacyControlParams {
+    const METHOD: &'static str = "Browser.getGlobalPrivacyControl";
+    type Response = GetGlobalPrivacyControlReturns;
+}
 
-impl crate::Command for AddPrivacySandboxCoordinatorKeyConfigParams {
-    const METHOD: &'static str = "Browser.addPrivacySandboxCoordinatorKeyConfig";
-    type Response = AddPrivacySandboxCoordinatorKeyConfigReturns;
+/// Parameters of `Browser.setGlobalPrivacyControl`.
+///
+/// Sets and then gets the current globally-applied privacy control status
+/// See https://www.w3.org/TR/gpc/#set-global-privacy-control
+///
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SetGlobalPrivacyControlParams {
+    #[serde(rename = "gpc")]
+    pub gpc: bool,
+}
+
+/// Return value of `Browser.setGlobalPrivacyControl`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SetGlobalPrivacyControlReturns {
+    #[serde(rename = "gpc")]
+    pub gpc: bool,
+}
+
+impl crate::Command for SetGlobalPrivacyControlParams {
+    const METHOD: &'static str = "Browser.setGlobalPrivacyControl";
+    type Response = SetGlobalPrivacyControlReturns;
 }
 
 /// Payload of the `Browser.downloadWillBegin` event.

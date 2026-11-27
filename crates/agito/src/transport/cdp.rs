@@ -30,6 +30,9 @@ pub enum TransportError {
     /// No answer arrived in time.
     #[error("no answer within {0:?}")]
     Timeout(Duration),
+    /// The session the command was sent on detached before the browser answered.
+    #[error("the session closed before the browser answered")]
+    SessionClosed,
 }
 
 /// Whether the connection is still usable.
@@ -59,7 +62,11 @@ impl Default for ConnectionOptions {
     }
 }
 
-type Pending = oneshot::Sender<Result<Value, TransportError>>;
+/// A command waiting for its answer, with the session it was sent on.
+struct Pending {
+    tx: oneshot::Sender<Result<Value, TransportError>>,
+    session_id: Option<String>,
+}
 
 /// A CDP connection. Cheap to clone; every clone talks over the same socket.
 #[derive(Clone)]
@@ -163,7 +170,13 @@ impl CdpConnection {
         }
         let id = self.inner.next_id.fetch_add(1, Ordering::Relaxed) + 1;
         let (tx, rx) = oneshot::channel();
-        self.inner.pending.lock().unwrap().insert(id, tx);
+        self.inner.pending.lock().unwrap().insert(
+            id,
+            Pending {
+                tx,
+                session_id: session_id.map(str::to_owned),
+            },
+        );
         let _guard = PendingGuard {
             inner: &self.inner,
             id,
@@ -294,7 +307,7 @@ async fn receive_loop(
 
 fn dispatch(inner: &Inner, envelope: InboundEnvelope) {
     if let Some(id) = envelope.id {
-        let Some(tx) = inner.pending.lock().unwrap().remove(&id) else {
+        let Some(Pending { tx, .. }) = inner.pending.lock().unwrap().remove(&id) else {
             return;
         };
         let result = match envelope.error {
@@ -308,6 +321,15 @@ fn dispatch(inner: &Inner, envelope: InboundEnvelope) {
         };
         let _ = tx.send(result);
     } else if let Some(method) = envelope.method {
+        if method == "Target.detachedFromTarget"
+            && let Some(gone) = envelope
+                .params
+                .as_ref()
+                .and_then(|p| p.get("sessionId"))
+                .and_then(Value::as_str)
+        {
+            fail_session_commands(inner, gone);
+        }
         let key = event_key(&method, envelope.session_id.as_deref());
         let mut subscribers = inner.subscribers.lock().unwrap();
         if let Some(list) = subscribers.get_mut(&key) {
@@ -321,6 +343,24 @@ fn dispatch(inner: &Inner, envelope: InboundEnvelope) {
                 subscribers.remove(&key);
             }
         }
+    }
+}
+
+/// Fails the commands still waiting on a session that detached. Chrome does not always answer
+/// commands on a target it is destroying: a click whose mouse release runs `window.close()`
+/// would otherwise wait out the whole command timeout.
+fn fail_session_commands(inner: &Inner, session_id: &str) {
+    let gone: Vec<Pending> = {
+        let mut pending = inner.pending.lock().unwrap();
+        let ids: Vec<u64> = pending
+            .iter()
+            .filter(|(_, p)| p.session_id.as_deref() == Some(session_id))
+            .map(|(id, _)| *id)
+            .collect();
+        ids.iter().filter_map(|id| pending.remove(id)).collect()
+    };
+    for p in gone {
+        let _ = p.tx.send(Err(TransportError::SessionClosed));
     }
 }
 
@@ -346,9 +386,9 @@ fn mark_closed(inner: &Inner, error: Option<String>) {
         .lock()
         .unwrap()
         .drain()
-        .map(|(_, tx)| tx)
+        .map(|(_, p)| p)
         .collect();
-    for tx in pending {
+    for Pending { tx, .. } in pending {
         let _ = tx.send(Err(TransportError::Disconnected(reason.clone())));
     }
     inner.subscribers.lock().unwrap().clear();
@@ -525,6 +565,36 @@ mod tests {
             send.await.unwrap(),
             Err(TransportError::Disconnected(_))
         ));
+        assert_eq!(conn.pending_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_detached_session_fails_only_its_own_pending_sends() {
+        let (fake, conn) = connect();
+        let (a, b) = (conn.clone(), conn.clone());
+        let on_gone = tokio::spawn(async move {
+            a.send_raw("Input.dispatchMouseEvent", &json!({}), Some("gone"))
+                .await
+        });
+        let on_other = tokio::spawn(async move {
+            b.send_raw("Runtime.evaluate", &json!({}), Some("other"))
+                .await
+        });
+        fake.wait_for_sent(2).await;
+
+        fake.enqueue(json!({
+            "method": "Target.detachedFromTarget",
+            "params": { "sessionId": "gone", "targetId": "T" }
+        }));
+        assert_eq!(on_gone.await.unwrap(), Err(TransportError::SessionClosed));
+        assert!(
+            !on_other.is_finished(),
+            "another session's command keeps waiting"
+        );
+
+        let id = fake.wait_for_command("Runtime.evaluate").await["id"].clone();
+        fake.enqueue(json!({ "id": id, "result": { "ok": true } }));
+        assert_eq!(on_other.await.unwrap(), Ok(json!({ "ok": true })));
         assert_eq!(conn.pending_count(), 0);
     }
 

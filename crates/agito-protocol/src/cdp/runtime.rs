@@ -74,10 +74,11 @@ pub struct RemoteObject {
     #[serde(rename = "className", default, skip_serializing_if = "Option::is_none")]
     pub class_name: Option<String>,
     /// Remote object value in case of primitive values or JSON values (if it was requested).
+    /// Not set in `deep` serialization mode, see `deepSerializedValue`.
     #[serde(rename = "value", default, skip_serializing_if = "Option::is_none")]
     pub value: Option<serde_json::Value>,
     /// Primitive value which can not be JSON-stringified does not have `value`, but gets this
-    /// property.
+    /// property. Not set in `deep` serialization mode, see `deepSerializedValue`.
     #[serde(
         rename = "unserializableValue",
         default,
@@ -1639,6 +1640,8 @@ pub enum RemoteObjectSubtype {
     Webassemblymemory,
     #[serde(rename = "wasmvalue")]
     Wasmvalue,
+    #[serde(rename = "deferredmodule")]
+    Deferredmodule,
     #[serde(rename = "trustedtype")]
     Trustedtype,
     /// A value this version of the bindings does not know about.
@@ -1709,6 +1712,8 @@ pub enum ObjectPreviewSubtype {
     Webassemblymemory,
     #[serde(rename = "wasmvalue")]
     Wasmvalue,
+    #[serde(rename = "deferredmodule")]
+    Deferredmodule,
     #[serde(rename = "trustedtype")]
     Trustedtype,
     /// A value this version of the bindings does not know about.
@@ -1781,6 +1786,8 @@ pub enum PropertyPreviewSubtype {
     Webassemblymemory,
     #[serde(rename = "wasmvalue")]
     Wasmvalue,
+    #[serde(rename = "deferredmodule")]
+    Deferredmodule,
     #[serde(rename = "trustedtype")]
     Trustedtype,
     /// A value this version of the bindings does not know about.

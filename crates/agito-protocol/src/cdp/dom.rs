@@ -48,10 +48,12 @@ pub enum PseudoType {
     Before,
     #[serde(rename = "after")]
     After,
+    #[serde(rename = "expand-icon")]
+    ExpandIcon,
     #[serde(rename = "picker-icon")]
     PickerIcon,
-    #[serde(rename = "interest-hint")]
-    InterestHint,
+    #[serde(rename = "interest-button")]
+    InterestButton,
     #[serde(rename = "marker")]
     Marker,
     #[serde(rename = "backdrop")]
@@ -114,10 +116,14 @@ pub enum PseudoType {
     DetailsContent,
     #[serde(rename = "picker")]
     Picker,
+    #[serde(rename = "select-listbox")]
+    SelectListbox,
     #[serde(rename = "permission-icon")]
     PermissionIcon,
     #[serde(rename = "overscroll-area-parent")]
     OverscrollAreaParent,
+    #[serde(rename = "skeleton")]
+    Skeleton,
     /// A value this version of the bindings does not know about.
     #[serde(other)]
     UnrecognizedValue,
@@ -380,11 +386,11 @@ pub struct Node {
     pub adopted_style_sheets: Option<Vec<StyleSheetId>>,
     /// **Experimental.**
     #[serde(
-        rename = "isAdRelated",
+        rename = "adProvenance",
         default,
         skip_serializing_if = "Option::is_none"
     )]
-    pub is_ad_related: Option<bool>,
+    pub ad_provenance: Option<super::network::AdProvenance>,
 }
 
 /// A structure to hold the top-level node of a detached tree and an array of its retained descendants.
@@ -1937,6 +1943,16 @@ pub struct ForceShowPopoverParams {
     /// popover if it was previously force-opened.
     #[serde(rename = "enable")]
     pub enable: bool,
+    /// Optional ID of the element invoking this popover, used to establish the implicit anchor.
+    /// If not provided, it will fall back to the first invoker in the document, preferring
+    /// elements with a popovertarget attribute over those with a commandfor attribute. Note that
+    /// if there are multiple invokers, this is just an estimate.
+    #[serde(
+        rename = "invokerNodeId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub invoker_node_id: Option<BackendNodeId>,
 }
 
 /// Return value of `DOM.forceShowPopover`.
@@ -1950,6 +1966,121 @@ pub struct ForceShowPopoverReturns {
 impl crate::Command for ForceShowPopoverParams {
     const METHOD: &'static str = "DOM.forceShowPopover";
     type Response = ForceShowPopoverReturns;
+}
+
+/// Parameters of `DOM.getImplicitAnchorCandidates`.
+///
+/// Returns candidate nodes that are configured as triggers for the given popover.
+///
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GetImplicitAnchorCandidatesParams {
+    /// Id of the popover HTMLElement.
+    #[serde(rename = "nodeId")]
+    pub node_id: NodeId,
+}
+
+/// Return value of `DOM.getImplicitAnchorCandidates`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GetImplicitAnchorCandidatesReturns {
+    /// Candidate elements that can invoke this popover.
+    #[serde(rename = "backendNodeIds")]
+    pub backend_node_ids: Vec<BackendNodeId>,
+}
+
+impl crate::Command for GetImplicitAnchorCandidatesParams {
+    const METHOD: &'static str = "DOM.getImplicitAnchorCandidates";
+    type Response = GetImplicitAnchorCandidatesReturns;
+}
+
+/// Parameters of `DOM.forceShowInterest`.
+///
+/// When enabling, this API forces an element to gain interest in its target,
+/// keeping interest active until disabled.
+///
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ForceShowInterestParams {
+    /// Id of the interest invoker HTMLElement.
+    #[serde(rename = "nodeId")]
+    pub node_id: NodeId,
+    /// If true, opens and holds interest. If false, releases forced interest.
+    #[serde(rename = "enable")]
+    pub enable: bool,
+}
+
+/// Return value of `DOM.forceShowInterest`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ForceShowInterestReturns {}
+
+impl crate::Command for ForceShowInterestParams {
+    const METHOD: &'static str = "DOM.forceShowInterest";
+    type Response = ForceShowInterestReturns;
+}
+
+/// Parameters of `DOM.setTextMarker`.
+///
+/// Sets a spelling or grammar error marker on the given range of text.
+/// See https://github.com/Igalia/explainers/blob/main/force-spelling-grammar-markers/README.md
+/// Note: exactly one between nodeId, backendNodeId and objectId should be passed
+/// to identify the node.
+///
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetTextMarkerParams {
+    /// Identifier of the node.
+    #[serde(rename = "nodeId", default, skip_serializing_if = "Option::is_none")]
+    pub node_id: Option<NodeId>,
+    /// Identifier of the backend node.
+    #[serde(
+        rename = "backendNodeId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub backend_node_id: Option<BackendNodeId>,
+    /// JavaScript object id of the node wrapper.
+    #[serde(rename = "objectId", default, skip_serializing_if = "Option::is_none")]
+    pub object_id: Option<super::runtime::RemoteObjectId>,
+    /// The type of marker to set on the given range of text.
+    #[serde(rename = "type")]
+    pub r#type: SetTextMarkerParamsType,
+    /// Start offset into the element's rendered text in UTF-16 code units.
+    /// For a text control, an offset into the control's value.
+    /// Offsets count text in DOM order and do not enter shadow trees.
+    /// To mark text inside a shadow tree, pass the element inside the shadow tree.
+    #[serde(rename = "start")]
+    pub start: i64,
+    /// End offset (exclusive) in the same units and space as start.
+    #[serde(rename = "end")]
+    pub end: i64,
+}
+
+/// Return value of `DOM.setTextMarker`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SetTextMarkerReturns {}
+
+impl crate::Command for SetTextMarkerParams {
+    const METHOD: &'static str = "DOM.setTextMarker";
+    type Response = SetTextMarkerReturns;
+}
+
+/// Parameters of `DOM.clearTextMarkers`.
+///
+/// Clears the spelling and grammar error text markers overlapping the ranges
+/// set by setTextMarker in this session. These markers are also removed when
+/// the DOM domain is disabled or the session ends.
+///
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ClearTextMarkersParams {}
+
+/// Return value of `DOM.clearTextMarkers`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ClearTextMarkersReturns {}
+
+impl crate::Command for ClearTextMarkersParams {
+    const METHOD: &'static str = "DOM.clearTextMarkers";
+    type Response = ClearTextMarkersReturns;
 }
 
 /// Payload of the `DOM.attributeModified` event.
@@ -2186,9 +2317,13 @@ pub struct AdRelatedStateUpdatedEvent {
     /// The id of the node.
     #[serde(rename = "nodeId")]
     pub node_id: NodeId,
-    /// If the node is ad related.
-    #[serde(rename = "isAdRelated")]
-    pub is_ad_related: bool,
+    /// The provenance of the ad related node, if it is ad related.
+    #[serde(
+        rename = "adProvenance",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub ad_provenance: Option<super::network::AdProvenance>,
 }
 
 impl crate::Event for AdRelatedStateUpdatedEvent {
@@ -2308,6 +2443,17 @@ pub enum GetElementByRelationParamsRelation {
     InterestTarget,
     #[serde(rename = "CommandFor")]
     CommandFor,
+    /// A value this version of the bindings does not know about.
+    #[serde(other)]
+    UnrecognizedValue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SetTextMarkerParamsType {
+    #[serde(rename = "spelling")]
+    Spelling,
+    #[serde(rename = "grammar")]
+    Grammar,
     /// A value this version of the bindings does not know about.
     #[serde(other)]
     UnrecognizedValue,

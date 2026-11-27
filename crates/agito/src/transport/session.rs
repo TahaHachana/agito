@@ -134,7 +134,7 @@ pub(crate) fn map_transport_error(
             message,
         }
         .into(),
-        TransportError::Disconnected(_) => {
+        TransportError::Disconnected(_) | TransportError::SessionClosed => {
             Error::target_closed("session", session_id, error.to_string())
         }
         TransportError::Timeout(timeout) => ErrorKind::CommandTimeout {

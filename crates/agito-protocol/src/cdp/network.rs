@@ -46,6 +46,8 @@ pub enum ResourceType {
     Preflight,
     #[serde(rename = "FedCM")]
     FedCM,
+    #[serde(rename = "EmailVerification")]
+    EmailVerification,
     #[serde(rename = "Other")]
     Other,
     /// A value this version of the bindings does not know about.
@@ -60,9 +62,6 @@ pub type LoaderId = String;
 /// Note that this does not identify individual HTTP requests that are part of
 /// a network request.
 pub type RequestId = String;
-
-/// Unique intercepted request identifier.
-pub type InterceptionId = String;
 
 /// Network level fetch failure reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -415,6 +414,16 @@ pub struct Request {
         skip_serializing_if = "Option::is_none"
     )]
     pub is_ad_related: Option<bool>,
+    /// The provenance of an ad resource request, if it is ad-related and
+    /// provenance is available.
+    ///
+    /// **Experimental.**
+    #[serde(
+        rename = "adProvenance",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub ad_provenance: Option<AdProvenance>,
 }
 
 /// Details of a signed certificate timestamp (SCT).
@@ -1128,8 +1137,6 @@ pub enum SetCookieBlockedReason {
     UserPreferences,
     #[serde(rename = "ThirdPartyPhaseout")]
     ThirdPartyPhaseout,
-    #[serde(rename = "ThirdPartyBlockedInFirstPartySet")]
-    ThirdPartyBlockedInFirstPartySet,
     #[serde(rename = "SyntaxError")]
     SyntaxError,
     #[serde(rename = "SchemeNotSupported")]
@@ -1182,8 +1189,6 @@ pub enum CookieBlockedReason {
     UserPreferences,
     #[serde(rename = "ThirdPartyPhaseout")]
     ThirdPartyPhaseout,
-    #[serde(rename = "ThirdPartyBlockedInFirstPartySet")]
-    ThirdPartyBlockedInFirstPartySet,
     #[serde(rename = "UnknownError")]
     UnknownError,
     #[serde(rename = "SchemefulSameSiteStrict")]
@@ -1214,14 +1219,6 @@ pub enum CookieExemptionReason {
     None,
     #[serde(rename = "UserSetting")]
     UserSetting,
-    #[serde(rename = "TPCDMetadata")]
-    TPCDMetadata,
-    #[serde(rename = "TPCDDeprecationTrial")]
-    TPCDDeprecationTrial,
-    #[serde(rename = "TopLevelTPCDDeprecationTrial")]
-    TopLevelTPCDDeprecationTrial,
-    #[serde(rename = "TPCDHeuristics")]
-    TPCDHeuristics,
     #[serde(rename = "EnterprisePolicy")]
     EnterprisePolicy,
     #[serde(rename = "StorageAccess")]
@@ -1401,50 +1398,6 @@ pub struct AuthChallengeResponse {
     pub password: Option<String>,
 }
 
-/// Stages of the interception to begin intercepting. Request will intercept before the request is
-/// sent. Response will intercept after the response is received.
-///
-/// **Experimental.**
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum InterceptionStage {
-    #[serde(rename = "Request")]
-    Request,
-    #[serde(rename = "HeadersReceived")]
-    HeadersReceived,
-    /// A value this version of the bindings does not know about.
-    #[serde(other)]
-    UnrecognizedValue,
-}
-
-/// Request pattern for interception.
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct RequestPattern {
-    /// Wildcards (`'*'` -> zero or more, `'?'` -> exactly one) are allowed. Escape character is
-    /// backslash. Omitting is equivalent to `"*"`.
-    #[serde(
-        rename = "urlPattern",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub url_pattern: Option<String>,
-    /// If set, only requests for matching resource types will be intercepted.
-    #[serde(
-        rename = "resourceType",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub resource_type: Option<ResourceType>,
-    /// Stage at which to begin intercepting requests. Default is Request.
-    #[serde(
-        rename = "interceptionStage",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub interception_stage: Option<InterceptionStage>,
-}
-
 /// Information about a signed exchange signature.
 /// https://wicg.github.io/webpackage/draft-yasskin-httpbis-origin-signed-exchanges-impl.html#rfc.section.3.1
 ///
@@ -1584,24 +1537,6 @@ pub struct SignedExchangeInfo {
     pub errors: Option<Vec<SignedExchangeError>>,
 }
 
-/// List of content encodings supported by the backend.
-///
-/// **Experimental.**
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum ContentEncoding {
-    #[serde(rename = "deflate")]
-    Deflate,
-    #[serde(rename = "gzip")]
-    Gzip,
-    #[serde(rename = "br")]
-    Br,
-    #[serde(rename = "zstd")]
-    Zstd,
-    /// A value this version of the bindings does not know about.
-    #[serde(other)]
-    UnrecognizedValue,
-}
-
 /// **Experimental.**
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct NetworkConditions {
@@ -1647,6 +1582,9 @@ pub struct NetworkConditions {
         skip_serializing_if = "Option::is_none"
     )]
     pub packet_reordering: Option<bool>,
+    /// True to emulate internet disconnection.
+    #[serde(rename = "offline", default, skip_serializing_if = "Option::is_none")]
+    pub offline: Option<bool>,
 }
 
 /// **Experimental.**
@@ -1846,6 +1784,76 @@ pub struct ClientSecurityState {
     pub initiator_ip_address_space: IPAddressSpace,
     #[serde(rename = "localNetworkAccessRequestPolicy")]
     pub local_network_access_request_policy: LocalNetworkAccessRequestPolicy,
+}
+
+/// Identifies the script on the stack that caused a resource or element to be
+/// labeled as an ad. For resources, this indicates the context that triggered
+/// the fetch. For elements, this indicates the context that caused the element
+/// to be appended to the DOM.
+///
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct AdScriptIdentifier {
+    /// The script's V8 identifier.
+    #[serde(rename = "scriptId")]
+    pub script_id: super::runtime::ScriptId,
+    /// V8's debugging ID for the v8::Context.
+    #[serde(rename = "debuggerId")]
+    pub debugger_id: super::runtime::UniqueDebuggerId,
+    /// The script's url (or generated name based on id if inline script).
+    #[serde(rename = "name")]
+    pub name: String,
+}
+
+/// Encapsulates the script ancestry and the root script filter list rule that
+/// caused the resource or element to be labeled as an ad.
+///
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct AdAncestry {
+    /// A chain of `AdScriptIdentifier`s representing the ancestry of an ad
+    /// script that led to the creation of a resource or element. The chain is
+    /// ordered from the script itself (lowest level) up to its root ancestor
+    /// that was flagged by a filter list.
+    #[serde(rename = "ancestryChain")]
+    pub ancestry_chain: Vec<AdScriptIdentifier>,
+    /// The filter list rule that caused the root (last) script in
+    /// `ancestryChain` to be tagged as an ad.
+    #[serde(
+        rename = "rootScriptFilterlistRule",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub root_script_filterlist_rule: Option<String>,
+}
+
+/// Represents the provenance of an ad resource or element. Only one of
+/// `filterlistRule` or `adScriptAncestry` can be set. If `filterlistRule`
+/// is provided, the resource URL directly matches a filter list rule. If
+/// `adScriptAncestry` is provided, an ad script initiated the resource fetch or
+/// appended the element to the DOM. If neither is provided, the entity is
+/// known to be an ad, but provenance tracking information is unavailable.
+///
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct AdProvenance {
+    /// The filterlist rule that matched, if any.
+    #[serde(
+        rename = "filterlistRule",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub filterlist_rule: Option<String>,
+    /// The script ancestry that created the ad, if any.
+    /// Note: depending on the context, this may represent the full ancestry up
+    /// to the root script, or it may contain only one script representing the
+    /// immediate ancestor.
+    #[serde(
+        rename = "adScriptAncestry",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub ad_script_ancestry: Option<AdAncestry>,
 }
 
 /// **Experimental.**
@@ -2146,16 +2154,21 @@ pub struct DeviceBoundSession {
 pub type DeviceBoundSessionEventId = String;
 
 /// A fetch result for a device bound session creation or refresh.
+/// LINT.IfChange(DeviceBoundSessionFetchResult)
 ///
 /// **Experimental.**
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DeviceBoundSessionFetchResult {
     #[serde(rename = "Success")]
     Success,
-    #[serde(rename = "KeyError")]
-    KeyError,
+    #[serde(rename = "SigningKeyGenerationError")]
+    SigningKeyGenerationError,
+    #[serde(rename = "AttestationKeyGenerationError")]
+    AttestationKeyGenerationError,
     #[serde(rename = "SigningError")]
     SigningError,
+    #[serde(rename = "TransientSigningError")]
+    TransientSigningError,
     #[serde(rename = "ServerRequestedTermination")]
     ServerRequestedTermination,
     #[serde(rename = "InvalidSessionId")]
@@ -2286,6 +2299,22 @@ pub enum DeviceBoundSessionFetchResult {
     FailedToUnwrapKey,
     #[serde(rename = "SessionDeletedDuringRefresh")]
     SessionDeletedDuringRefresh,
+    #[serde(rename = "CrossOriginRegistrationSiteNotIncluded")]
+    CrossOriginRegistrationSiteNotIncluded,
+    #[serde(rename = "InvalidPreProvisionedKeyInitiatorMissing")]
+    InvalidPreProvisionedKeyInitiatorMissing,
+    #[serde(rename = "PreProvisionedKeyAccessNotGranted")]
+    PreProvisionedKeyAccessNotGranted,
+    #[serde(rename = "PreProvisionedKeyNotFound")]
+    PreProvisionedKeyNotFound,
+    #[serde(rename = "AttestationCertificationError")]
+    AttestationCertificationError,
+    #[serde(rename = "AttestationSigningError")]
+    AttestationSigningError,
+    #[serde(rename = "FederatedRegistrationRedirected")]
+    FederatedRegistrationRedirected,
+    #[serde(rename = "CrossSiteRefreshSessionConfig")]
+    CrossSiteRefreshSessionConfig,
     /// A value this version of the bindings does not know about.
     #[serde(other)]
     UnrecognizedValue,
@@ -2352,8 +2381,10 @@ pub struct CreationEventDetails {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RefreshEventDetails {
     /// The result of a refresh.
+    /// LINT.IfChange(DeviceBoundSessionRefreshResult)
     #[serde(rename = "refreshResult")]
     pub refresh_result: RefreshEventDetailsRefreshResult,
+    /// LINT.ThenChange(//net/device_bound_sessions/refresh_result.h:DeviceBoundSessionRefreshResult,//content/browser/devtools/protocol/network_handler.cc:DeviceBoundSessionRefreshResult)
     /// If there was a fetch attempt, the result of that.
     #[serde(
         rename = "fetchResult",
@@ -2447,44 +2478,6 @@ pub struct LoadNetworkResourceOptions {
     pub include_credentials: bool,
 }
 
-/// Parameters of `Network.setAcceptedEncodings`.
-///
-/// Sets a list of content encodings that will be accepted. Empty list means no encoding is accepted.
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SetAcceptedEncodingsParams {
-    /// List of accepted content encodings.
-    #[serde(rename = "encodings")]
-    pub encodings: Vec<ContentEncoding>,
-}
-
-/// Return value of `Network.setAcceptedEncodings`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SetAcceptedEncodingsReturns {}
-
-impl crate::Command for SetAcceptedEncodingsParams {
-    const METHOD: &'static str = "Network.setAcceptedEncodings";
-    type Response = SetAcceptedEncodingsReturns;
-}
-
-/// Parameters of `Network.clearAcceptedEncodingsOverride`.
-///
-/// Clears accepted encodings set by setAcceptedEncodings
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct ClearAcceptedEncodingsOverrideParams {}
-
-/// Return value of `Network.clearAcceptedEncodingsOverride`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct ClearAcceptedEncodingsOverrideReturns {}
-
-impl crate::Command for ClearAcceptedEncodingsOverrideParams {
-    const METHOD: &'static str = "Network.clearAcceptedEncodingsOverride";
-    type Response = ClearAcceptedEncodingsOverrideReturns;
-}
-
 /// Parameters of `Network.canClearBrowserCache`.
 ///
 /// Tells whether clearing browser cache is supported.
@@ -2576,69 +2569,6 @@ pub struct ClearBrowserCookiesReturns {}
 impl crate::Command for ClearBrowserCookiesParams {
     const METHOD: &'static str = "Network.clearBrowserCookies";
     type Response = ClearBrowserCookiesReturns;
-}
-
-/// Parameters of `Network.continueInterceptedRequest`.
-///
-/// Response to Network.requestIntercepted which either modifies the request to continue with any
-/// modifications, or blocks it, or completes it with the provided response bytes. If a network
-/// fetch occurs as a result which encounters a redirect an additional Network.requestIntercepted
-/// event will be sent with the same InterceptionId.
-/// Deprecated, use Fetch.continueRequest, Fetch.fulfillRequest and Fetch.failRequest instead.
-///
-/// **Experimental.** **Deprecated.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct ContinueInterceptedRequestParams {
-    #[serde(rename = "interceptionId")]
-    pub interception_id: InterceptionId,
-    /// If set this causes the request to fail with the given reason. Passing `Aborted` for requests
-    /// marked with `isNavigationRequest` also cancels the navigation. Must not be set in response
-    /// to an authChallenge.
-    #[serde(
-        rename = "errorReason",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub error_reason: Option<ErrorReason>,
-    /// If set the requests completes using with the provided base64 encoded raw response, including
-    /// HTTP status line and headers etc... Must not be set in response to an authChallenge. (Encoded as a base64 string when passed over JSON)
-    #[serde(
-        rename = "rawResponse",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub raw_response: Option<String>,
-    /// If set the request url will be modified in a way that's not observable by page. Must not be
-    /// set in response to an authChallenge.
-    #[serde(rename = "url", default, skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-    /// If set this allows the request method to be overridden. Must not be set in response to an
-    /// authChallenge.
-    #[serde(rename = "method", default, skip_serializing_if = "Option::is_none")]
-    pub method: Option<String>,
-    /// If set this allows postData to be set. Must not be set in response to an authChallenge.
-    #[serde(rename = "postData", default, skip_serializing_if = "Option::is_none")]
-    pub post_data: Option<String>,
-    /// If set this allows the request headers to be changed. Must not be set in response to an
-    /// authChallenge.
-    #[serde(rename = "headers", default, skip_serializing_if = "Option::is_none")]
-    pub headers: Option<Headers>,
-    /// Response to a requestIntercepted with an authChallenge. Must not be set otherwise.
-    #[serde(
-        rename = "authChallengeResponse",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub auth_challenge_response: Option<AuthChallengeResponse>,
-}
-
-/// Return value of `Network.continueInterceptedRequest`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct ContinueInterceptedRequestReturns {}
-
-impl crate::Command for ContinueInterceptedRequestParams {
-    const METHOD: &'static str = "Network.continueInterceptedRequest";
-    type Response = ContinueInterceptedRequestReturns;
 }
 
 /// Parameters of `Network.deleteCookies`.
@@ -2769,9 +2699,19 @@ impl crate::Command for EmulateNetworkConditionsParams {
 /// **Experimental.**
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct EmulateNetworkConditionsByRuleParams {
-    /// True to emulate internet disconnection.
-    #[serde(rename = "offline")]
-    pub offline: bool,
+    /// True to emulate internet disconnection. Deprecated, use the offline property in matchedNetworkConditions
+    /// or emulateOfflineServiceWorker instead.
+    ///
+    /// **Deprecated.**
+    #[serde(rename = "offline", default, skip_serializing_if = "Option::is_none")]
+    pub offline: Option<bool>,
+    /// True to emulate offline service worker.
+    #[serde(
+        rename = "emulateOfflineServiceWorker",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub emulate_offline_service_worker: Option<bool>,
     /// Configure conditions for matching requests. If multiple entries match a request, the first entry wins.  Global
     /// conditions can be configured by leaving the urlPattern for the conditions empty. These global conditions are
     /// also applied for throttling of p2p connections.
@@ -3054,60 +2994,6 @@ impl crate::Command for GetRequestPostDataParams {
     type Response = GetRequestPostDataReturns;
 }
 
-/// Parameters of `Network.getResponseBodyForInterception`.
-///
-/// Returns content served for the given currently intercepted request.
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct GetResponseBodyForInterceptionParams {
-    /// Identifier for the intercepted request to get body for.
-    #[serde(rename = "interceptionId")]
-    pub interception_id: InterceptionId,
-}
-
-/// Return value of `Network.getResponseBodyForInterception`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct GetResponseBodyForInterceptionReturns {
-    /// Response body.
-    #[serde(rename = "body")]
-    pub body: String,
-    /// True, if content was sent as base64.
-    #[serde(rename = "base64Encoded")]
-    pub base64_encoded: bool,
-}
-
-impl crate::Command for GetResponseBodyForInterceptionParams {
-    const METHOD: &'static str = "Network.getResponseBodyForInterception";
-    type Response = GetResponseBodyForInterceptionReturns;
-}
-
-/// Parameters of `Network.takeResponseBodyForInterceptionAsStream`.
-///
-/// Returns a handle to the stream representing the response body. Note that after this command,
-/// the intercepted request can't be continued as is -- you either need to cancel it or to provide
-/// the response body. The stream only supports sequential read, IO.read will fail if the position
-/// is specified.
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct TakeResponseBodyForInterceptionAsStreamParams {
-    #[serde(rename = "interceptionId")]
-    pub interception_id: InterceptionId,
-}
-
-/// Return value of `Network.takeResponseBodyForInterceptionAsStream`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct TakeResponseBodyForInterceptionAsStreamReturns {
-    #[serde(rename = "stream")]
-    pub stream: super::io::StreamHandle,
-}
-
-impl crate::Command for TakeResponseBodyForInterceptionAsStreamParams {
-    const METHOD: &'static str = "Network.takeResponseBodyForInterceptionAsStream";
-    type Response = TakeResponseBodyForInterceptionAsStreamReturns;
-}
-
 /// Parameters of `Network.replayXHR`.
 ///
 /// This method sends a new XMLHttpRequest which is identical to the original one. The following
@@ -3381,29 +3267,6 @@ impl crate::Command for SetAttachDebugStackParams {
     type Response = SetAttachDebugStackReturns;
 }
 
-/// Parameters of `Network.setRequestInterception`.
-///
-/// Sets the requests to intercept that match the provided patterns and optionally resource types.
-/// Deprecated, please use Fetch.enable instead.
-///
-/// **Experimental.** **Deprecated.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SetRequestInterceptionParams {
-    /// Requests matching any of these patterns will be forwarded and wait for the corresponding
-    /// continueInterceptedRequest call.
-    #[serde(rename = "patterns")]
-    pub patterns: Vec<RequestPattern>,
-}
-
-/// Return value of `Network.setRequestInterception`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SetRequestInterceptionReturns {}
-
-impl crate::Command for SetRequestInterceptionParams {
-    const METHOD: &'static str = "Network.setRequestInterception";
-    type Response = SetRequestInterceptionReturns;
-}
-
 /// Parameters of `Network.setUserAgentOverride`.
 ///
 /// Allows overriding user agent with the given string.
@@ -3535,6 +3398,26 @@ impl crate::Command for EnableDeviceBoundSessionsParams {
     type Response = EnableDeviceBoundSessionsReturns;
 }
 
+/// Parameters of `Network.deleteDeviceBoundSession`.
+///
+/// Deletes a device bound session.
+///
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct DeleteDeviceBoundSessionParams {
+    #[serde(rename = "key")]
+    pub key: DeviceBoundSessionKey,
+}
+
+/// Return value of `Network.deleteDeviceBoundSession`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct DeleteDeviceBoundSessionReturns {}
+
+impl crate::Command for DeleteDeviceBoundSessionParams {
+    const METHOD: &'static str = "Network.deleteDeviceBoundSession";
+    type Response = DeleteDeviceBoundSessionReturns;
+}
+
 /// Parameters of `Network.fetchSchemefulSite`.
 ///
 /// Fetches the schemeful site for a specific origin.
@@ -3602,12 +3485,6 @@ pub struct SetCookieControlsParams {
     /// Whether 3pc restriction is enabled.
     #[serde(rename = "enableThirdPartyCookieRestriction")]
     pub enable_third_party_cookie_restriction: bool,
-    /// Whether 3pc grace period exception should be enabled; false by default.
-    #[serde(rename = "disableThirdPartyCookieMetadata")]
-    pub disable_third_party_cookie_metadata: bool,
-    /// Whether 3pc heuristics exceptions should be enabled; false by default.
-    #[serde(rename = "disableThirdPartyCookieHeuristics")]
-    pub disable_third_party_cookie_heuristics: bool,
 }
 
 /// Return value of `Network.setCookieControls`.
@@ -3727,92 +3604,20 @@ pub struct LoadingFinishedEvent {
     /// Total number of bytes received for this request.
     #[serde(rename = "encodedDataLength")]
     pub encoded_data_length: f64,
+    /// Size of the response body before removing content encodings.
+    /// Includes cached bodies, but excludes headers and transfer framing.
+    ///
+    /// **Experimental.**
+    #[serde(
+        rename = "encodedBodyLength",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub encoded_body_length: Option<f64>,
 }
 
 impl crate::Event for LoadingFinishedEvent {
     const NAME: &'static str = "Network.loadingFinished";
-}
-
-/// Payload of the `Network.requestIntercepted` event.
-///
-/// Details of an intercepted HTTP request, which must be either allowed, blocked, modified or
-/// mocked.
-/// Deprecated, use Fetch.requestPaused instead.
-///
-/// **Experimental.** **Deprecated.**
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RequestInterceptedEvent {
-    /// Each request the page makes will have a unique id, however if any redirects are encountered
-    /// while processing that fetch, they will be reported with the same id as the original fetch.
-    /// Likewise if HTTP authentication is needed then the same fetch id will be used.
-    #[serde(rename = "interceptionId")]
-    pub interception_id: InterceptionId,
-    #[serde(rename = "request")]
-    pub request: Request,
-    /// The id of the frame that initiated the request.
-    #[serde(rename = "frameId")]
-    pub frame_id: super::page::FrameId,
-    /// How the requested resource will be used.
-    #[serde(rename = "resourceType")]
-    pub resource_type: ResourceType,
-    /// Whether this is a navigation request, which can abort the navigation completely.
-    #[serde(rename = "isNavigationRequest")]
-    pub is_navigation_request: bool,
-    /// Set if the request is a navigation that will result in a download.
-    /// Only present after response is received from the server (i.e. HeadersReceived stage).
-    #[serde(
-        rename = "isDownload",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub is_download: Option<bool>,
-    /// Redirect location, only sent if a redirect was intercepted.
-    #[serde(
-        rename = "redirectUrl",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub redirect_url: Option<String>,
-    /// Details of the Authorization Challenge encountered. If this is set then
-    /// continueInterceptedRequest must contain an authChallengeResponse.
-    #[serde(
-        rename = "authChallenge",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub auth_challenge: Option<AuthChallenge>,
-    /// Response error if intercepted at response stage or if redirect occurred while intercepting
-    /// request.
-    #[serde(
-        rename = "responseErrorReason",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub response_error_reason: Option<ErrorReason>,
-    /// Response code if intercepted at response stage or if redirect occurred while intercepting
-    /// request or auth retry occurred.
-    #[serde(
-        rename = "responseStatusCode",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub response_status_code: Option<i64>,
-    /// Response headers if intercepted at the response stage or if redirect occurred while
-    /// intercepting request or auth retry occurred.
-    #[serde(
-        rename = "responseHeaders",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub response_headers: Option<Headers>,
-    /// If the intercepted request had a corresponding requestWillBeSent event fired for it, then
-    /// this requestId will be the same as the requestId present in the requestWillBeSent event.
-    #[serde(rename = "requestId", default, skip_serializing_if = "Option::is_none")]
-    pub request_id: Option<RequestId>,
-}
-
-impl crate::Event for RequestInterceptedEvent {
-    const NAME: &'static str = "Network.requestIntercepted";
 }
 
 /// Payload of the `Network.requestServedFromCache` event.
@@ -4228,12 +4033,12 @@ impl crate::Event for DirectTCPSocketOpenedEvent {
 /// Fired when direct_socket.TCPSocket is aborted.
 ///
 /// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DirectTCPSocketAbortedEvent {
     #[serde(rename = "identifier")]
     pub identifier: RequestId,
     #[serde(rename = "errorMessage")]
-    pub error_message: String,
+    pub error_message: ErrorReason,
     #[serde(rename = "timestamp")]
     pub timestamp: MonotonicTime,
 }
@@ -4304,8 +4109,17 @@ impl crate::Event for DirectTCPSocketChunkReceivedEvent {
 pub struct DirectUDPSocketJoinedMulticastGroupEvent {
     #[serde(rename = "identifier")]
     pub identifier: RequestId,
+    /// Multicast group address.
     #[serde(rename = "IPAddress")]
     pub ip_address: String,
+    /// Source address of a source-specific multicast (SSM) membership. Absent
+    /// for any-source multicast (ASM) memberships.
+    #[serde(
+        rename = "sourceAddress",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub source_address: Option<String>,
 }
 
 impl crate::Event for DirectUDPSocketJoinedMulticastGroupEvent {
@@ -4319,8 +4133,17 @@ impl crate::Event for DirectUDPSocketJoinedMulticastGroupEvent {
 pub struct DirectUDPSocketLeftMulticastGroupEvent {
     #[serde(rename = "identifier")]
     pub identifier: RequestId,
+    /// Multicast group address.
     #[serde(rename = "IPAddress")]
     pub ip_address: String,
+    /// Source address of a source-specific multicast (SSM) membership. Absent
+    /// for any-source multicast (ASM) memberships.
+    #[serde(
+        rename = "sourceAddress",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub source_address: Option<String>,
 }
 
 impl crate::Event for DirectUDPSocketLeftMulticastGroupEvent {
@@ -4388,12 +4211,12 @@ impl crate::Event for DirectUDPSocketOpenedEvent {
 /// Fired when direct_socket.UDPSocket is aborted.
 ///
 /// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DirectUDPSocketAbortedEvent {
     #[serde(rename = "identifier")]
     pub identifier: RequestId,
     #[serde(rename = "errorMessage")]
-    pub error_message: String,
+    pub error_message: ErrorReason,
     #[serde(rename = "timestamp")]
     pub timestamp: MonotonicTime,
 }
@@ -4831,6 +4654,8 @@ pub enum InitiatorType {
     Preflight,
     #[serde(rename = "FedCM")]
     FedCM,
+    #[serde(rename = "EmailVerification")]
+    EmailVerification,
     #[serde(rename = "other")]
     Other,
     /// A value this version of the bindings does not know about.
@@ -4902,12 +4727,18 @@ pub enum RefreshEventDetailsRefreshResult {
     Unreachable,
     #[serde(rename = "ServerError")]
     ServerError,
-    #[serde(rename = "RefreshQuotaExceeded")]
-    RefreshQuotaExceeded,
     #[serde(rename = "FatalError")]
     FatalError,
     #[serde(rename = "SigningQuotaExceeded")]
     SigningQuotaExceeded,
+    #[serde(rename = "RefreshedAsWaiter")]
+    RefreshedAsWaiter,
+    #[serde(rename = "TransientSigningError")]
+    TransientSigningError,
+    #[serde(rename = "InScopeRefreshNotYetNeeded")]
+    InScopeRefreshNotYetNeeded,
+    #[serde(rename = "Canceled")]
+    Canceled,
     /// A value this version of the bindings does not know about.
     #[serde(other)]
     UnrecognizedValue,
@@ -4931,6 +4762,10 @@ pub enum TerminationEventDetailsDeletionReason {
     InvalidSessionParams,
     #[serde(rename = "RefreshFatalError")]
     RefreshFatalError,
+    #[serde(rename = "DevTools")]
+    DevTools,
+    #[serde(rename = "Replaced")]
+    Replaced,
     /// A value this version of the bindings does not know about.
     #[serde(other)]
     UnrecognizedValue,

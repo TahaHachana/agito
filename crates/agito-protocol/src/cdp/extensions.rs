@@ -45,8 +45,6 @@ pub struct ExtensionInfo {
 /// Parameters of `Extensions.triggerAction`.
 ///
 /// Runs an extension default action.
-/// Available if the client is connected using the --remote-debugging-pipe
-/// flag and the --enable-unsafe-extension-debugging flag is set.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct TriggerActionParams {
     /// Extension id.
@@ -70,9 +68,7 @@ impl crate::Command for TriggerActionParams {
 ///
 /// Installs an unpacked extension from the filesystem similar to
 /// --load-extension CLI flags. Returns extension ID once the extension
-/// has been installed. Available if the client is connected using the
-/// --remote-debugging-pipe flag and the --enable-unsafe-extension-debugging
-/// flag is set.
+/// has been installed.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct LoadUnpackedParams {
     /// Absolute file path.
@@ -103,8 +99,6 @@ impl crate::Command for LoadUnpackedParams {
 /// Parameters of `Extensions.getExtensions`.
 ///
 /// Gets a list of all unpacked extensions.
-/// Available if the client is connected using the --remote-debugging-pipe flag
-/// and the --enable-unsafe-extension-debugging flag is set.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct GetExtensionsParams {}
 
@@ -123,8 +117,6 @@ impl crate::Command for GetExtensionsParams {
 /// Parameters of `Extensions.uninstall`.
 ///
 /// Uninstalls an unpacked extension (others not supported) from the profile.
-/// Available if the client is connected using the --remote-debugging-pipe flag
-/// and the --enable-unsafe-extension-debugging.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct UninstallParams {
     /// Extension id.
