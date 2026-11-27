@@ -15,10 +15,13 @@ pub const RESULTS_DIR: &str = "AGITO_RESULTS_DIR";
 pub struct TestRecord {
     /// `module_path!()::name`: libtest's name for the test, prefixed by the crate's name.
     pub name: String,
+    /// Whether the test passed, after any retries. A quarantined test that failed records `false`.
     pub passed: bool,
     /// Across every attempt, including setup.
     pub duration_ms: f64,
+    /// How many times the harness ran the test: more than one after a lost browser.
     pub attempts: u32,
+    /// Why the test failed.
     pub message: Option<String>,
     /// The failure was the browser going away.
     pub browser_lost: bool,

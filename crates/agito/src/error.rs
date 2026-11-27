@@ -76,66 +76,99 @@ pub enum ErrorKind {
     /// A navigation did not reach the requested load state in time.
     #[error("{message}")]
     NavigationTimeout {
+        /// The URL being loaded.
         url: String,
+        /// How long it waited.
         timeout: Duration,
+        /// The last network events seen, to explain the wait.
         last_network_events: Vec<String>,
+        /// The full message.
         message: String,
     },
 
     /// A wait condition did not become true in time.
     #[error("{message}")]
     WaitTimeout {
+        /// What was being waited for.
         condition: String,
+        /// How long it waited.
         timeout: Duration,
+        /// The last value seen.
         last_evaluated_value: Option<String>,
+        /// The full message.
         message: String,
     },
 
     /// An action's actionability checks did not pass in time.
     #[error("{message}")]
     ActionTimeout {
+        /// The locator's selector.
         selector: String,
+        /// The check that did not pass: `visible`, `enabled`, `editable`, `scrollIntoView`,
+        /// `stable`, `receivesEvents`, or `resolve` for an element never found.
         failed_check: String,
+        /// What was seen of the element.
         element_state: Option<String>,
+        /// The page's URL.
         page_url: String,
+        /// How long it waited.
         timeout: Duration,
+        /// The full message.
         message: String,
     },
 
     /// The browser did not answer a protocol command in time.
     #[error("'{method}' got no answer within {timeout:?}")]
-    CommandTimeout { method: String, timeout: Duration },
+    CommandTimeout {
+        /// The command that got no answer.
+        method: String,
+        /// How long it waited.
+        timeout: Duration,
+    },
 
     /// A selector matched nothing.
     #[error("No element found for selector: {selector}")]
     ElementNotFound {
+        /// The selector.
         selector: String,
+        /// The page's URL.
         page_url: String,
+        /// Where the search stopped matching, when known.
         dom_snapshot: Option<String>,
     },
 
     /// A selector that must match one element matched several.
     #[error("Selector '{selector}' matched {matched} elements, expected one.")]
     AmbiguousSelector {
+        /// The selector.
         selector: String,
+        /// The page's URL.
         page_url: String,
+        /// How many elements matched.
         matched: usize,
     },
 
     /// A navigation failed outright, such as `net::ERR_NAME_NOT_RESOLVED`.
     #[error("{message}")]
     Navigation {
+        /// The URL being loaded.
         url: String,
+        /// The browser's error, such as `net::ERR_NAME_NOT_RESOLVED`.
         error_code: String,
+        /// The page's URL.
         page_url: String,
+        /// The full message.
         message: String,
     },
 
     /// The page, context, session or browser went away underneath the call.
     #[error("{message}")]
     TargetClosed {
+        /// What went away: `page`, `context`, `session` or `browser`.
         target_type: String,
+        /// Its id, when known.
         target_id: Option<String>,
+        /// The full message.
         message: String,
     },
 
@@ -146,14 +179,20 @@ pub enum ErrorKind {
     /// The browser answered a command with an error.
     #[error("{message}")]
     Protocol {
+        /// The protocol error code.
         code: Option<i64>,
+        /// The command that failed.
         method: Option<String>,
+        /// The browser's message.
         message: String,
     },
 
     /// A script run in the page threw, or returned something that could not be decoded.
     #[error("{message}")]
-    Evaluation { message: String },
+    Evaluation {
+        /// What the script threw, or why its result could not be decoded.
+        message: String,
+    },
 
     /// The feature needs something the current browser transport cannot do.
     #[error("{0}")]
@@ -166,7 +205,9 @@ pub enum ErrorKind {
     /// Launching or talking to the browser process failed at the OS level.
     #[error("{context}: {source}")]
     Io {
+        /// What agito was doing.
         context: String,
+        /// The underlying error.
         source: Arc<std::io::Error>,
     },
 
@@ -178,11 +219,17 @@ pub enum ErrorKind {
 /// The details of a failed assertion.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AssertionFailure {
+    /// What was expected.
     pub expected: Option<String>,
+    /// What was last seen.
     pub actual: Option<String>,
+    /// The locator's selector, for assertions on a locator.
     pub selector: Option<String>,
+    /// The page's URL.
     pub page_url: Option<String>,
+    /// How long the assertion retried.
     pub timeout: Duration,
+    /// The full message.
     pub message: String,
 }
 

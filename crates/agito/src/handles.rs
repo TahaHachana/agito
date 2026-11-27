@@ -13,9 +13,13 @@ use crate::transport::Session;
 /// A rectangle in CSS pixels, relative to the main frame's viewport.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize, Serialize)]
 pub struct BoundingBox {
+    /// Left edge, in CSS pixels from the left of the page.
     pub x: f64,
+    /// Top edge, in CSS pixels from the top of the page.
     pub y: f64,
+    /// Width in CSS pixels.
     pub width: f64,
+    /// Height in CSS pixels.
     pub height: f64,
 }
 

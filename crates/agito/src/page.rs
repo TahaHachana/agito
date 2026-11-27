@@ -56,9 +56,11 @@ impl WaitUntil {
 /// Options for `goto`, `reload`, `go_back` and `go_forward`.
 #[derive(Debug, Clone, Default)]
 pub struct NavigateOptions {
+    /// When the navigation counts as done.
     pub wait_until: WaitUntil,
     /// Defaults to the context's navigation timeout.
     pub timeout: Option<Duration>,
+    /// The `Referer` header to send.
     pub referer: Option<String>,
 }
 
@@ -67,15 +69,19 @@ pub use crate::network::Response;
 /// Image format for screenshots.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ImageFormat {
+    /// PNG, lossless.
     #[default]
     Png,
+    /// JPEG.
     Jpeg,
+    /// WebP.
     Webp,
 }
 
 /// Options for [`Page::screenshot`].
 #[derive(Debug, Clone, Default)]
 pub struct ScreenshotOptions {
+    /// The image format.
     pub format: ImageFormat,
     /// 0-100, for JPEG and WebP.
     pub quality: Option<u8>,
@@ -88,11 +94,17 @@ pub struct ScreenshotOptions {
 /// Options for [`Page::pdf`]. Sizes are in inches.
 #[derive(Debug, Clone, Default)]
 pub struct PdfOptions {
+    /// Print in landscape.
     pub landscape: bool,
+    /// Print background colours and images.
     pub print_background: bool,
+    /// Scale the rendering, from 0.1 to 2.
     pub scale: Option<f64>,
+    /// Paper width in inches.
     pub paper_width: Option<f64>,
+    /// Paper height in inches.
     pub paper_height: Option<f64>,
+    /// Pages to print, such as `1-5, 8`.
     pub page_ranges: Option<String>,
 }
 
@@ -101,7 +113,9 @@ pub struct PdfOptions {
 pub struct ConsoleMessage {
     /// `log`, `error`, `warning`, `info`, `debug`, ...
     pub kind: String,
+    /// The message's text.
     pub text: String,
+    /// The values passed to the console call.
     pub args: Vec<Value>,
 }
 
@@ -109,12 +123,16 @@ pub struct ConsoleMessage {
 /// `**` across them), a regex, or a predicate.
 #[derive(Clone)]
 pub enum UrlMatcher {
+    /// A glob, or an exact URL when it has no `*`.
     Glob(String),
+    /// A regular expression.
     Regex(Regex),
+    /// A function of the URL.
     Predicate(Arc<dyn Fn(&str) -> bool + Send + Sync>),
 }
 
 impl UrlMatcher {
+    /// Whether `url` matches.
     pub fn matches(&self, url: &str) -> bool {
         match self {
             UrlMatcher::Glob(pattern) => glob_matches(pattern, url),
@@ -123,6 +141,7 @@ impl UrlMatcher {
         }
     }
 
+    /// The pattern, for error messages.
     pub fn describe(&self) -> String {
         match self {
             UrlMatcher::Glob(p) => format!("'{p}'"),
@@ -178,8 +197,11 @@ pub fn glob_matches(pattern: &str, url: &str) -> bool {
 #[derive(Clone)]
 pub struct Dialog {
     session: Arc<dyn Session>,
+    /// `alert`, `confirm`, `prompt` or `beforeunload`.
     pub kind: String,
+    /// The text the dialog shows.
     pub message: String,
+    /// A prompt's default answer.
     pub default_prompt: Option<String>,
 }
 
@@ -346,6 +368,18 @@ impl PageState {
 }
 
 /// A browser tab. Cheap to clone.
+///
+/// Most calls act on the page's main frame: [`Page::goto`], [`Page::locator`] and the
+/// `get_by_*` methods are shortcuts for the same calls on [`Page::main_frame`].
+///
+/// ```no_run
+/// # async fn example(page: agito::Page) -> agito::Result<()> {
+/// page.goto("https://example.com").await?;
+/// let title = page.title().await?;
+/// page.get_by_role("link", Some("Learn more")).click().await?;
+/// let png = page.screenshot(Default::default()).await?;
+/// # Ok(()) }
+/// ```
 #[derive(Clone)]
 pub struct Page {
     pub(crate) inner: Arc<PageInner>,
@@ -732,14 +766,17 @@ impl Page {
         self.main_frame().url()
     }
 
+    /// Whether the page has been closed.
     pub fn is_closed(&self) -> bool {
         self.inner.is_closed()
     }
 
+    /// The page's mouse.
     pub fn mouse(&self) -> &Mouse {
         &self.inner.mouse
     }
 
+    /// The page's keyboard.
     pub fn keyboard(&self) -> &Keyboard {
         &self.inner.keyboard
     }

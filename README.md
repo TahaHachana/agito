@@ -5,6 +5,9 @@ Protocol directly (a pipe to the browser it launches, or a WebSocket to one alre
 with no driver process or Node.js sidecar in between. Its own selector strategies are
 registered through the same plugin API third-party code uses.
 
+**[Read the book](https://tahahachana.github.io/agito/)** for a guide to how agito is built
+and how to use it, and [docs.rs](https://docs.rs/agito) for the API reference.
+
 agito is a Rust port of Motus, a .NET browser automation framework. It is early (0.2):
 Chromium-based browsers only. See
 [docs/parity.md](https://github.com/TahaHachana/agito/blob/main/docs/parity.md) for what
@@ -193,6 +196,7 @@ Variables: `AGITO_HEADLESS`, `AGITO_CHANNEL`, `AGITO_SLOWMO`, `AGITO_LAUNCH_TIME
 | `crates/agito-cli` | The `agito` command-line tool: `install`, `screenshot`, `pdf`, `run`, `shard merge` |
 | `crates/agito-macros` | `#[agito::test]` and `#[agito::plugin]` |
 | `crates/agito-protocol` | CDP bindings generated from the vendored protocol JSON |
+| `book` | The agito book, published to GitHub Pages; its examples are tests in `samples/agito-samples` |
 | `samples/agito-samples` | Example page object and tests, ported from Motus.Samples |
 | `xtask` | Developer tasks: `cargo xtask codegen`, `cargo xtask update-protocol` |
 
@@ -204,6 +208,7 @@ cargo test -p agito -p agito-samples -p agito-cli \
   --features agito/integration,agito-samples/integration,agito-cli/integration   # drives a real Chrome/Chromium
 cargo xtask codegen [--check]              # regenerate (or verify) the CDP bindings
 cargo xtask update-protocol [--dry-run]    # vendor the latest devtools-protocol and regenerate
+mdbook serve book                          # the book, at http://localhost:3000
 cargo run -p agito --example screenshot -- https://example.com shot.png
 ```
 

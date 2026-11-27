@@ -551,6 +551,14 @@ impl Frame {
 impl_get_by!(Frame);
 
 /// Locates elements inside an `<iframe>`, finding the iframe afresh each time it is used.
+///
+/// ```no_run
+/// # async fn example(page: agito::Page) -> agito::Result<()> {
+/// let payment = page.frame_locator("iframe#payment");
+/// payment.get_by_label("Card number").fill("4242 4242 4242 4242").await?;
+/// payment.get_by_role("button", Some("Pay")).click().await?;
+/// # Ok(()) }
+/// ```
 #[derive(Clone, Debug)]
 #[must_use = "a frame locator does nothing until a locator built from it is used"]
 pub struct FrameLocator {

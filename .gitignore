@@ -1,3 +1,4 @@
 /target
 **/*.rs.bk
 /crates/agito-cli/tests/fixture/Cargo.lock
+/book/book

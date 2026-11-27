@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Added
+- The agito book (`book/`), published to GitHub Pages: how agito is built, a guide to
+  writing and running tests, and a reference for the CLI, configuration and errors. Its
+  examples are tests in `samples/agito-samples`, so they compile and pass in CI.
+- API documentation: every public item in `agito` is documented (`missing_docs` is now a
+  warning, and CI fails on warnings), the crate page gives an overview and links to the
+  book, and the main types have examples that compile as doctests. The crates link to the
+  book as their homepage.
 - The `agito` command-line tool (crate `agito-cli`), starting with `agito install`. It
   downloads Chrome for Testing into `~/.agito/browsers`, where the launcher finds it with no
   configuration. `--revision` picks the build by version (`131.0.6778.85`), milestone

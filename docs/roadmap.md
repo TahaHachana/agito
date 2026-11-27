@@ -132,7 +132,8 @@ downloads, the CLI and the protocol update are unreleased, and go out as 0.3.0.
 The priority is making agito usable by others, so the work goes in this order rather than by
 phase number:
 
-1. **Ship 0.3.0.** Merge the CLI work, check that `agito run` and `agito install` pass CI on
+1. **Ship 0.3.0, with documentation.** The book (`book/`) is written and deploys to GitHub
+   Pages from `main`. Merge the CLI work, check that `agito run` and `agito install` pass CI on
    macOS and Windows (until now they have only run on Linux), and release, including the first
    `agito-cli`. Run CI's browser tests through `agito run`, so it is exercised on every push
    and CI gets JUnit results.

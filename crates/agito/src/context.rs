@@ -23,15 +23,20 @@ use crate::selectors::SelectorRegistry;
 /// Viewport dimensions in CSS pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Viewport {
+    /// Width in CSS pixels.
     pub width: u32,
+    /// Height in CSS pixels.
     pub height: u32,
 }
 
 /// Light or dark preference reported to `prefers-color-scheme`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorScheme {
+    /// Reports `prefers-color-scheme: light`.
     Light,
+    /// Reports `prefers-color-scheme: dark`.
     Dark,
+    /// Reports `prefers-color-scheme: no-preference`.
     NoPreference,
 }
 
@@ -50,14 +55,21 @@ impl ColorScheme {
 pub struct ContextOptions {
     /// `None` leaves the window's own size; the default is 1280x720.
     pub viewport: Option<Viewport>,
+    /// The `User-Agent` header and `navigator.userAgent`; the browser's own when `None`.
     pub user_agent: Option<String>,
+    /// The locale, such as `fr-FR`: `navigator.language` and `Accept-Language`.
     pub locale: Option<String>,
+    /// The timezone, such as `Europe/Paris`; the machine's when `None`.
     pub timezone_id: Option<String>,
+    /// What `prefers-color-scheme` reports.
     pub color_scheme: Option<ColorScheme>,
+    /// Accept invalid TLS certificates, for test servers.
     pub ignore_https_errors: bool,
     /// Relative URLs passed to `goto` resolve against this.
     pub base_url: Option<String>,
+    /// Headers added to every request the context makes.
     pub extra_http_headers: HashMap<String, String>,
+    /// A proxy for the context's requests, such as `http://proxy:3128`.
     pub proxy_server: Option<String>,
     /// Default timeout for locator actions.
     pub action_timeout: Duration,
@@ -103,13 +115,19 @@ impl ContextOptions {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Cookie {
+    /// The cookie's name.
     pub name: String,
+    /// The cookie's value.
     pub value: String,
+    /// The domain it is sent to.
     pub domain: Option<String>,
+    /// The path it is sent for.
     pub path: Option<String>,
     /// Seconds since the epoch; `None` for a session cookie.
     pub expires: Option<f64>,
+    /// Hidden from page scripts (`document.cookie`).
     pub http_only: bool,
+    /// Sent over HTTPS only.
     pub secure: bool,
     /// A URL to scope the cookie by, instead of `domain` and `path`.
     pub url: Option<String>,
@@ -131,7 +149,18 @@ impl Cookie {
     }
 }
 
-/// An isolated browser session. Cheap to clone.
+/// An isolated browser session: its own cookies, storage, cache, routes and init scripts, with
+/// its own [`ContextOptions`] for every page in it. Cheap to clone.
+///
+/// ```no_run
+/// # async fn example(context: agito::BrowserContext) -> agito::Result<()> {
+/// use agito::Cookie;
+///
+/// context.add_cookies(&[Cookie::new("session", "abc123", "https://shop.test")]).await?;
+/// let page = context.new_page().await?;
+/// let other = context.new_page().await?; // shares the cookie
+/// # Ok(()) }
+/// ```
 #[derive(Clone)]
 pub struct BrowserContext {
     pub(crate) inner: Arc<ContextInner>,
@@ -226,6 +255,7 @@ impl BrowserContext {
         &self.inner.id
     }
 
+    /// The options the context was created with.
     pub fn options(&self) -> &ContextOptions {
         &self.inner.options
     }
@@ -550,6 +580,7 @@ impl BrowserContext {
         result
     }
 
+    /// Whether the context has been closed.
     pub fn is_closed(&self) -> bool {
         self.inner.closed.load(Ordering::SeqCst)
     }

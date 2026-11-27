@@ -12,43 +12,65 @@ use serde::Deserialize;
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Config {
+    /// `launch`: how to start the browser.
     pub launch: LaunchConfig,
+    /// `context`: the default context options.
     pub context: ContextConfig,
+    /// `locator`: action settings.
     pub locator: LocatorConfig,
+    /// `assertions`: `expect` settings.
     pub assertions: AssertionsConfig,
+    /// `failure`: what to save when a test fails.
     pub failure: FailureConfig,
 }
 
+/// The `launch` section.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct LaunchConfig {
+    /// Run without a window.
     pub headless: Option<bool>,
+    /// `chrome`, `edge` or `chromium`.
     pub channel: Option<String>,
+    /// A pause before every command, in milliseconds.
     pub slow_mo: Option<u64>,
+    /// How long launching may take, in milliseconds.
     pub timeout: Option<u64>,
+    /// A browser executable to launch.
     pub executable_path: Option<String>,
+    /// Run Chromium with its sandbox.
     pub chromium_sandbox: Option<bool>,
 }
 
+/// The `context` section.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ContextConfig {
+    /// The locale, such as `fr-FR`.
     pub locale: Option<String>,
+    /// `light`, `dark` or `no-preference`.
     pub color_scheme: Option<String>,
+    /// Accept invalid TLS certificates.
     #[serde(rename = "ignoreHTTPSErrors")]
     pub ignore_https_errors: Option<bool>,
+    /// The viewport size.
     pub viewport: Option<ViewportConfig>,
+    /// What relative URLs resolve against.
     #[serde(rename = "baseURL")]
     pub base_url: Option<String>,
 }
 
+/// A viewport size in CSS pixels.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ViewportConfig {
+    /// Width.
     pub width: Option<u32>,
+    /// Height.
     pub height: Option<u32>,
 }
 
+/// The `locator` section.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct LocatorConfig {
@@ -56,6 +78,7 @@ pub struct LocatorConfig {
     pub timeout: Option<u64>,
 }
 
+/// The `assertions` section.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AssertionsConfig {
@@ -63,10 +86,13 @@ pub struct AssertionsConfig {
     pub timeout: Option<u64>,
 }
 
+/// The `failure` section.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct FailureConfig {
+    /// Save a screenshot when an `#[agito::test]` fails.
     pub screenshot: Option<bool>,
+    /// Where to save them.
     pub screenshot_path: Option<String>,
 }
 

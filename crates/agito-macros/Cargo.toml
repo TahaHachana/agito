@@ -6,6 +6,7 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
+homepage.workspace = true
 keywords = ["browser", "testing", "macro"]
 categories = ["development-tools::testing", "development-tools::procedural-macro-helpers"]
 

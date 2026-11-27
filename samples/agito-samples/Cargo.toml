@@ -12,3 +12,8 @@ integration = []
 [dependencies]
 agito = { workspace = true }
 base64 = "0.23"
+
+[dev-dependencies]
+async-trait = "0.1.92"
+regex = "1.13.2"
+serde_json.workspace = true

@@ -1,8 +1,12 @@
 //! # agito
 //!
-//! Browser automation and testing for Rust. agito talks to Chromium over the Chrome DevTools
-//! Protocol directly, with no driver process in between, and is built on a plugin API its
-//! own features use.
+//! Browser automation and testing for Rust. agito drives Chromium-based browsers (Chrome,
+//! Edge, Chromium, Chrome for Testing) over the Chrome DevTools Protocol, directly: there is no
+//! WebDriver binary or Node.js process in between.
+//!
+//! **New to agito? Start with [the agito book](https://tahahachana.github.io/agito/)**, which
+//! explains how agito is built and walks through writing and running tests. This page is the
+//! API reference.
 //!
 //! ```no_run
 //! use agito::{expect, Page};
@@ -10,14 +14,49 @@
 //! #[agito::test]
 //! async fn search_works(page: Page) -> agito::Result<()> {
 //!     page.goto("https://example.com").await?;
-//!     page.locator("input[name=q]").fill("agito").await?;
+//!     page.get_by_label("Search").fill("agito").await?;
 //!     page.get_by_role("button", Some("Search")).click().await?;
 //!     expect(&page).to_have_url("**/search**").await?;
 //!     Ok(())
 //! }
 //! ```
 //!
-//! agito is a port of the Motus .NET framework.
+//! [`#[agito::test]`](macro@test) runs under plain `cargo test`: each test gets a fresh
+//! [`BrowserContext`] and [`Page`] in a browser shared by its test binary.
+//!
+//! ## Where to start
+//!
+//! | To | Start at |
+//! |---|---|
+//! | Write a test | [`macro@test`], then [`Page`], [`Locator`] and [`expect()`] |
+//! | Find elements | [`Page::get_by_role`], [`Page::locator`] and the other `get_by_*` methods |
+//! | Mock or watch the network | [`Page::route`], [`Page::wait_for_response`], [`network`] |
+//! | Work in iframes and popups | [`Page::frame_locator`], [`Page::wait_for_popup`] |
+//! | Script a browser outside tests | [`launch()`], [`connect()`], [`Browser`] |
+//! | Configure without code | [`config`]: `agito.config.json` and `AGITO_*` variables |
+//! | Extend agito | [`mod@plugin`], [`selectors`] and [`#[agito::plugin]`](macro@plugin) |
+//!
+//! ## How the types fit together
+//!
+//! A [`Browser`] holds [`BrowserContext`]s, isolated profiles with their own cookies, storage
+//! and routes. A context holds [`Page`]s, and a page holds [`Frame`]s. A [`Locator`] describes
+//! how to find elements in a frame and finds them afresh every time it is used; actions on it
+//! wait until the element can be used. All of these are cheap handles: cloning one clones a
+//! pointer. Failures are an [`Error`], whose [`ErrorKind`] says what went wrong.
+//!
+//! The [book's architecture chapter](https://tahahachana.github.io/agito/concepts/architecture.html)
+//! covers the layers underneath: [`transport`] sessions over one connection, typed by the
+//! generated [`protocol`] crate.
+//!
+//! ## Features
+//!
+//! - `testing`: [`testing::FakeSocket`], a scripted browser connection for testing code built
+//!   on agito without a browser.
+//! - `integration`: enables agito's own browser tests. You do not need it.
+//!
+//! agito is a Rust port of the Motus .NET framework.
+
+#![warn(missing_docs)]
 
 pub mod browser;
 pub mod config;

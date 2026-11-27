@@ -21,6 +21,12 @@ jobs:
       - run: cargo clippy --workspace --all-targets --features agito/integration,agito-samples/integration,agito-cli/integration -- -D warnings
       - name: Generated CDP bindings are current
         run: cargo xtask codegen --check
+      - name: API docs build, with no broken links
+        run: |
+          cargo doc --no-deps -p agito --features testing
+          cargo doc --no-deps -p agito-macros
+        env:
+          RUSTDOCFLAGS: -D warnings
 
   test:
     strategy:

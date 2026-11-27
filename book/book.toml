@@ -1,0 +1,11 @@
+[book]
+title = "agito"
+description = "Browser automation and testing for Rust, over the Chrome DevTools Protocol"
+authors = ["Taha Hachana"]
+language = "en"
+src = "src"
+
+[output.html]
+site-url = "/agito/"
+git-repository-url = "https://github.com/TahaHachana/agito"
+edit-url-template = "https://github.com/TahaHachana/agito/edit/main/book/{path}"

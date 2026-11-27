@@ -47,6 +47,7 @@ pub struct SelectorRegistry {
 }
 
 impl SelectorRegistry {
+    /// Adds a strategy, replacing one with the same name.
     pub fn register(&self, strategy: Arc<dyn SelectorStrategy>) {
         self.strategies
             .write()
@@ -54,6 +55,7 @@ impl SelectorRegistry {
             .insert(strategy.name().to_ascii_lowercase(), strategy);
     }
 
+    /// The strategy for a prefix, ignoring case.
     pub fn get(&self, prefix: &str) -> Option<Arc<dyn SelectorStrategy>> {
         self.strategies
             .read()
@@ -243,6 +245,7 @@ pub struct TestIdStrategy {
 }
 
 impl TestIdStrategy {
+    /// A strategy for the attribute `attribute`, which is also its prefix.
     pub fn new(attribute: impl Into<String>) -> Self {
         Self {
             attribute: attribute.into(),
@@ -392,16 +395,19 @@ pub struct GetByStrategy {
 }
 
 impl GetByStrategy {
+    /// Matches by text.
     pub fn text() -> Self {
         Self {
             kind: GetByKind::Text,
         }
     }
+    /// Matches form controls by label.
     pub fn label() -> Self {
         Self {
             kind: GetByKind::Label,
         }
     }
+    /// Matches by an attribute's value.
     pub fn attribute() -> Self {
         Self {
             kind: GetByKind::Attribute,
@@ -470,18 +476,22 @@ fn parse_get_by(expression: &str, has_attribute: bool) -> Result<(Option<String>
     Ok((attribute, text, exact))
 }
 
+/// The selector `get_by_text` uses.
 pub fn get_by_text(text: &str, exact: bool) -> String {
     format!("_text={}", format_text(text, exact))
 }
 
+/// The selector `get_by_label` uses.
 pub fn get_by_label(text: &str, exact: bool) -> String {
     format!("_label={}", format_text(text, exact))
 }
 
+/// The selector the attribute-based `get_by_*` methods use.
 pub fn get_by_attribute(attribute: &str, text: &str, exact: bool) -> String {
     format!("_attr={attribute}={}", format_text(text, exact))
 }
 
+/// The selector `get_by_test_id` uses.
 pub fn test_id_selector(test_id: &str) -> String {
     format!("[data-testid={}]", css_string(test_id))
 }

@@ -22,6 +22,19 @@ use crate::transport::{CdpConnection, CdpSessionRegistry, Session, SessionRegist
 ///
 /// A launched browser is killed when the last handle is dropped; call [`Browser::close`] to
 /// shut it down gracefully instead.
+///
+/// ```no_run
+/// # async fn example() -> agito::Result<()> {
+/// use agito::{ContextOptions, LaunchOptions};
+///
+/// let browser = agito::launch(LaunchOptions::default()).await?;
+/// // Two contexts share nothing: not cookies, storage or routes.
+/// let alice = browser.new_context(ContextOptions::default()).await?;
+/// let bob = browser.new_context(ContextOptions::default()).await?;
+/// let page = alice.new_page().await?;
+/// browser.close().await?;
+/// # Ok(()) }
+/// ```
 #[derive(Clone)]
 pub struct Browser {
     pub(crate) inner: Arc<BrowserInner>,

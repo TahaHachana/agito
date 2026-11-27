@@ -8,13 +8,18 @@ use crate::error::{Error, Result};
 /// Which browser build to launch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BrowserChannel {
+    /// Chromium, or Chrome for Testing installed by `agito install`.
     Chromium,
+    /// Google Chrome.
     Chrome,
+    /// Microsoft Edge.
     Edge,
+    /// Firefox. Not supported yet: agito drives Chromium-based browsers only.
     Firefox,
 }
 
 impl BrowserChannel {
+    /// The channel's name in lower case, as configuration and markers spell it.
     pub fn name(self) -> &'static str {
         match self {
             BrowserChannel::Chromium => "chromium",

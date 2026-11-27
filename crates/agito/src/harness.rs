@@ -98,8 +98,11 @@ pub async fn shared_browser() -> Result<Browser> {
 /// What a test can ask for.
 #[derive(Clone)]
 pub struct Fixtures {
+    /// The browser the test binary shares.
     pub browser: Browser,
+    /// The test's own context.
     pub context: BrowserContext,
+    /// A new page in that context.
     pub page: Page,
 }
 
@@ -108,6 +111,7 @@ pub struct Fixtures {
 pub struct TestOptions {
     /// Re-runs after a lost browser.
     pub retries: u32,
+    /// Makes the options for the test's context.
     pub context: fn() -> ContextOptions,
     /// Why the test is quarantined: it still runs, but a failure is reported, not raised.
     pub quarantine: Option<&'static str>,

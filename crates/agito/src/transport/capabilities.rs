@@ -40,7 +40,7 @@ bitflags::bitflags! {
     }
 }
 
-/// Fails with [`Error::NotSupported`] unless `has` includes all of `required`.
+/// Fails with [`ErrorKind::NotSupported`](crate::ErrorKind::NotSupported) unless `has` includes all of `required`.
 pub fn require(
     has: Capabilities,
     required: Capabilities,
