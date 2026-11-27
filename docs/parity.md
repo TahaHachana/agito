@@ -78,6 +78,8 @@ run real browser tests.
   loader, so pages restored from the back-forward cache finish immediately.
 - Chrome's "Session with given id not found" and "Target closed" errors count as a lost
   browser, so the harness retries them.
+- Commands pending on a session fail as soon as it detaches (`Target.detachedFromTarget`),
+  as in Puppeteer, rather than when the command times out.
 - Profiles left by test binaries are swept on the next launch.
 
 - `page.frame_locator(selector)` / `locator.content_frame()` (Playwright-style) find the iframe

@@ -39,6 +39,10 @@
   detached.
 
 ### Fixed
+- A command still waiting for its answer when its page closed waited out the full 60s
+  command timeout, because Chrome does not answer commands on a target it is destroying. A
+  click on a button that closes its own window sometimes did this. Such commands now fail at
+  once with a target-closed error when the page's session detaches.
 - Clicks in out-of-process iframes that had to be scrolled into view sometimes missed. Chrome
   routes input to such frames through the compositor, which can lag a frame behind a scroll.
   agito now waits for the page to render after scrolling, then re-checks before clicking.
