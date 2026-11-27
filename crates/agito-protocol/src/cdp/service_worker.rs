@@ -51,6 +51,101 @@ pub enum ServiceWorkerVersionStatus {
     UnrecognizedValue,
 }
 
+/// Mostly corresponds to `RouterCondition` in ServiceWorker spec
+/// (https://www.w3.org/TR/service-workers/#dictdef-routercondition)
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ServiceWorkerRouterCondition {
+    /// Plain text, or JSON serialization of URLPatternInit or URLPattern
+    #[serde(
+        rename = "urlPattern",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub url_pattern: Option<String>,
+    #[serde(
+        rename = "requestMethod",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub request_method: Option<String>,
+    #[serde(
+        rename = "requestMode",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub request_mode: Option<String>,
+    #[serde(
+        rename = "requestDestination",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub request_destination: Option<String>,
+    #[serde(
+        rename = "runningStatus",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub running_status: Option<ServiceWorkerVersionRunningStatus>,
+    #[serde(rename = "or", default, skip_serializing_if = "Option::is_none")]
+    pub or: Option<Vec<ServiceWorkerRouterCondition>>,
+    #[serde(rename = "not", default, skip_serializing_if = "Option::is_none")]
+    pub not: Option<Box<ServiceWorkerRouterCondition>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ServiceWorkerRouterSourceType {
+    #[serde(rename = "cache")]
+    Cache,
+    #[serde(rename = "fetchEvent")]
+    FetchEvent,
+    #[serde(rename = "network")]
+    Network,
+    #[serde(rename = "raceNetworkAndFetchHandler")]
+    RaceNetworkAndFetchHandler,
+    #[serde(rename = "raceNetworkAndCache")]
+    RaceNetworkAndCache,
+    #[serde(rename = "sourceDict")]
+    SourceDict,
+    /// A value this version of the bindings does not know about.
+    #[serde(other)]
+    UnrecognizedValue,
+}
+
+/// https://www.w3.org/TR/service-workers/#dictdef-routersourcedict
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ServiceWorkerRouterSourceDict {
+    #[serde(rename = "cacheName")]
+    pub cache_name: String,
+}
+
+/// Corresponds to `RouterSource` in the spec while the representation is different as follows.
+/// (https://www.w3.org/TR/service-workers/#typedefdef-routersource)
+/// - `RouterSourceEnum`: `type` equals `cache`, `sourceDict` is null.
+/// - `RouterSourceDict`: `type` equals `sourceDict`, `sourceDict` has valid value.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServiceWorkerRouterSource {
+    #[serde(rename = "type")]
+    pub r#type: ServiceWorkerRouterSourceType,
+    /// Non-empty iff `type` equals "sourceDict".
+    #[serde(
+        rename = "sourceDict",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub source_dict: Option<ServiceWorkerRouterSourceDict>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServiceWorkerRouterRule {
+    #[serde(rename = "condition")]
+    pub condition: ServiceWorkerRouterCondition,
+    #[serde(rename = "source")]
+    pub source: ServiceWorkerRouterSource,
+    /// Rule ID assigned by the browser. Unique within each ServiceWorkerVersion.
+    #[serde(rename = "id")]
+    pub id: i64,
+}
+
 /// ServiceWorker version.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServiceWorkerVersion {
@@ -87,12 +182,21 @@ pub struct ServiceWorkerVersion {
     pub controlled_clients: Option<Vec<super::target::TargetID>>,
     #[serde(rename = "targetId", default, skip_serializing_if = "Option::is_none")]
     pub target_id: Option<super::target::TargetID>,
+    /// Migration to `typedRouterRules` is in progress. The browser sends either
+    /// `routerRules` or `typedRouterRules`.
+    /// TODO(crbug.com/540469610): Remove `routerRules` after the migration.
     #[serde(
         rename = "routerRules",
         default,
         skip_serializing_if = "Option::is_none"
     )]
     pub router_rules: Option<String>,
+    #[serde(
+        rename = "typedRouterRules",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub typed_router_rules: Option<Vec<ServiceWorkerRouterRule>>,
 }
 
 /// ServiceWorker error message.

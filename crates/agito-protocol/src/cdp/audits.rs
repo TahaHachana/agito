@@ -47,8 +47,6 @@ pub enum CookieExclusionReason {
     ExcludeSameSiteStrict,
     #[serde(rename = "ExcludeDomainNonASCII")]
     ExcludeDomainNonASCII,
-    #[serde(rename = "ExcludeThirdPartyCookieBlockedInFirstPartySet")]
-    ExcludeThirdPartyCookieBlockedInFirstPartySet,
     #[serde(rename = "ExcludeThirdPartyPhaseout")]
     ExcludeThirdPartyPhaseout,
     #[serde(rename = "ExcludePortMismatch")]
@@ -211,8 +209,6 @@ pub enum MixedContentResolutionStatus {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MixedContentResourceType {
-    #[serde(rename = "AttributionSrc")]
-    AttributionSrc,
     #[serde(rename = "Audio")]
     Audio,
     #[serde(rename = "Beacon")]
@@ -514,55 +510,6 @@ pub struct CorsIssueDetails {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum AttributionReportingIssueType {
-    #[serde(rename = "PermissionPolicyDisabled")]
-    PermissionPolicyDisabled,
-    #[serde(rename = "UntrustworthyReportingOrigin")]
-    UntrustworthyReportingOrigin,
-    #[serde(rename = "InsecureContext")]
-    InsecureContext,
-    #[serde(rename = "InvalidHeader")]
-    InvalidHeader,
-    #[serde(rename = "InvalidRegisterTriggerHeader")]
-    InvalidRegisterTriggerHeader,
-    #[serde(rename = "SourceAndTriggerHeaders")]
-    SourceAndTriggerHeaders,
-    #[serde(rename = "SourceIgnored")]
-    SourceIgnored,
-    #[serde(rename = "TriggerIgnored")]
-    TriggerIgnored,
-    #[serde(rename = "OsSourceIgnored")]
-    OsSourceIgnored,
-    #[serde(rename = "OsTriggerIgnored")]
-    OsTriggerIgnored,
-    #[serde(rename = "InvalidRegisterOsSourceHeader")]
-    InvalidRegisterOsSourceHeader,
-    #[serde(rename = "InvalidRegisterOsTriggerHeader")]
-    InvalidRegisterOsTriggerHeader,
-    #[serde(rename = "WebAndOsHeaders")]
-    WebAndOsHeaders,
-    #[serde(rename = "NoWebOrOsSupport")]
-    NoWebOrOsSupport,
-    #[serde(rename = "NavigationRegistrationWithoutTransientUserActivation")]
-    NavigationRegistrationWithoutTransientUserActivation,
-    #[serde(rename = "InvalidInfoHeader")]
-    InvalidInfoHeader,
-    #[serde(rename = "NoRegisterSourceHeader")]
-    NoRegisterSourceHeader,
-    #[serde(rename = "NoRegisterTriggerHeader")]
-    NoRegisterTriggerHeader,
-    #[serde(rename = "NoRegisterOsSourceHeader")]
-    NoRegisterOsSourceHeader,
-    #[serde(rename = "NoRegisterOsTriggerHeader")]
-    NoRegisterOsTriggerHeader,
-    #[serde(rename = "NavigationRegistrationUniqueScopeAlreadySet")]
-    NavigationRegistrationUniqueScopeAlreadySet,
-    /// A value this version of the bindings does not know about.
-    #[serde(other)]
-    UnrecognizedValue,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SharedDictionaryError {
     #[serde(rename = "UseErrorCrossOriginNoCorsRequest")]
     UseErrorCrossOriginNoCorsRequest,
@@ -602,6 +549,8 @@ pub enum SharedDictionaryError {
     WriteErrorNonStringIdField,
     #[serde(rename = "WriteErrorNonStringInMatchDestList")]
     WriteErrorNonStringInMatchDestList,
+    #[serde(rename = "WriteErrorInvalidMatchDestList")]
+    WriteErrorInvalidMatchDestList,
     #[serde(rename = "WriteErrorNonStringMatchField")]
     WriteErrorNonStringMatchField,
     #[serde(rename = "WriteErrorNonTokenTypeField")]
@@ -663,6 +612,14 @@ pub enum SRIMessageSignatureError {
     ValidationFailedSignatureMismatch,
     #[serde(rename = "ValidationFailedIntegrityMismatch")]
     ValidationFailedIntegrityMismatch,
+    #[serde(rename = "SignatureBaseUnknownDerivedComponent")]
+    SignatureBaseUnknownDerivedComponent,
+    #[serde(rename = "SignatureBaseMissingHeader")]
+    SignatureBaseMissingHeader,
+    #[serde(rename = "SignatureBaseInvalidUnencodedDigest")]
+    SignatureBaseInvalidUnencodedDigest,
+    #[serde(rename = "SignatureBaseUnsupportedComponent")]
+    SignatureBaseUnsupportedComponent,
     /// A value this version of the bindings does not know about.
     #[serde(other)]
     UnrecognizedValue,
@@ -697,31 +654,15 @@ pub enum ConnectionAllowlistError {
     ReportingEndpointNotToken,
     #[serde(rename = "InvalidUrlPattern")]
     InvalidUrlPattern,
+    #[serde(rename = "IFrameAttributeLoosensEmbeddingRequirement")]
+    IFrameAttributeLoosensEmbeddingRequirement,
+    #[serde(rename = "InvalidAllowConnectionAllowlistFrom")]
+    InvalidAllowConnectionAllowlistFrom,
+    #[serde(rename = "EmbeddingRequirementNotSatisfied")]
+    EmbeddingRequirementNotSatisfied,
     /// A value this version of the bindings does not know about.
     #[serde(other)]
     UnrecognizedValue,
-}
-
-/// Details for issues around "Attribution Reporting API" usage.
-/// Explainer: https://github.com/WICG/attribution-reporting-api
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AttributionReportingIssueDetails {
-    #[serde(rename = "violationType")]
-    pub violation_type: AttributionReportingIssueType,
-    #[serde(rename = "request", default, skip_serializing_if = "Option::is_none")]
-    pub request: Option<AffectedRequest>,
-    #[serde(
-        rename = "violatingNodeId",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub violating_node_id: Option<super::dom::BackendNodeId>,
-    #[serde(
-        rename = "invalidParameter",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub invalid_parameter: Option<String>,
 }
 
 /// Details for issues about documents in Quirks Mode
@@ -813,6 +754,8 @@ pub enum GenericIssueErrorType {
     ResponseWasBlockedByORB,
     #[serde(rename = "NavigationEntryMarkedSkippable")]
     NavigationEntryMarkedSkippable,
+    #[serde(rename = "BackUINavigationWouldSkipAd")]
+    BackUINavigationWouldSkipAd,
     #[serde(rename = "AutofillAndManualTextPolicyControlledFeaturesInfo")]
     AutofillAndManualTextPolicyControlledFeaturesInfo,
     #[serde(rename = "AutofillPolicyControlledFeatureInfo")]
@@ -821,6 +764,16 @@ pub enum GenericIssueErrorType {
     ManualTextPolicyControlledFeatureInfo,
     #[serde(rename = "FormModelContextParameterMissingTitleAndDescription")]
     FormModelContextParameterMissingTitleAndDescription,
+    #[serde(rename = "FormModelContextMissingToolName")]
+    FormModelContextMissingToolName,
+    #[serde(rename = "FormModelContextMissingToolDescription")]
+    FormModelContextMissingToolDescription,
+    #[serde(rename = "FormModelContextRequiredParameterMissingName")]
+    FormModelContextRequiredParameterMissingName,
+    #[serde(rename = "FormModelContextParameterMissingName")]
+    FormModelContextParameterMissingName,
+    #[serde(rename = "GeolocationPromptWithoutUserGesture")]
+    GeolocationPromptWithoutUserGesture,
     /// A value this version of the bindings does not know about.
     #[serde(other)]
     UnrecognizedValue,
@@ -926,6 +879,8 @@ pub enum FederatedAuthRequestIssueReason {
     WellKnownHttpNotFound,
     #[serde(rename = "WellKnownNoResponse")]
     WellKnownNoResponse,
+    #[serde(rename = "WellKnownBlockedByConnectionAllowlist")]
+    WellKnownBlockedByConnectionAllowlist,
     #[serde(rename = "WellKnownInvalidResponse")]
     WellKnownInvalidResponse,
     #[serde(rename = "WellKnownListEmpty")]
@@ -940,6 +895,8 @@ pub enum FederatedAuthRequestIssueReason {
     ConfigHttpNotFound,
     #[serde(rename = "ConfigNoResponse")]
     ConfigNoResponse,
+    #[serde(rename = "ConfigBlockedByConnectionAllowlist")]
+    ConfigBlockedByConnectionAllowlist,
     #[serde(rename = "ConfigInvalidResponse")]
     ConfigInvalidResponse,
     #[serde(rename = "ConfigInvalidContentType")]
@@ -958,6 +915,8 @@ pub enum FederatedAuthRequestIssueReason {
     AccountsHttpNotFound,
     #[serde(rename = "AccountsNoResponse")]
     AccountsNoResponse,
+    #[serde(rename = "AccountsBlockedByConnectionAllowlist")]
+    AccountsBlockedByConnectionAllowlist,
     #[serde(rename = "AccountsInvalidResponse")]
     AccountsInvalidResponse,
     #[serde(rename = "AccountsListEmpty")]
@@ -968,6 +927,8 @@ pub enum FederatedAuthRequestIssueReason {
     IdTokenHttpNotFound,
     #[serde(rename = "IdTokenNoResponse")]
     IdTokenNoResponse,
+    #[serde(rename = "IdTokenBlockedByConnectionAllowlist")]
+    IdTokenBlockedByConnectionAllowlist,
     #[serde(rename = "IdTokenInvalidResponse")]
     IdTokenInvalidResponse,
     #[serde(rename = "IdTokenIdpErrorResponse")]
@@ -1002,6 +963,8 @@ pub enum FederatedAuthRequestIssueReason {
     CorsError,
     #[serde(rename = "SuppressedBySegmentationPlatform")]
     SuppressedBySegmentationPlatform,
+    #[serde(rename = "PopupBlockedByConnectionAllowlist")]
+    PopupBlockedByConnectionAllowlist,
     /// A value this version of the bindings does not know about.
     #[serde(other)]
     UnrecognizedValue,
@@ -1036,6 +999,138 @@ pub enum FederatedAuthUserInfoRequestIssueReason {
     InvalidAccountsResponse,
     #[serde(rename = "NoReturningUserFromFetchedAccounts")]
     NoReturningUserFromFetchedAccounts,
+    /// A value this version of the bindings does not know about.
+    #[serde(other)]
+    UnrecognizedValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EmailVerificationRequestIssueDetails {
+    #[serde(rename = "emailVerificationRequestIssueReason")]
+    pub email_verification_request_issue_reason: EmailVerificationRequestIssueReason,
+}
+
+/// Represents the failure reason when an email verification request fails.
+/// Should be updated alongside EmailVerificationRequestResult in
+/// third_party/blink/public/mojom/devtools/inspector_issue.mojom.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum EmailVerificationRequestIssueReason {
+    #[serde(rename = "InvalidEmail")]
+    InvalidEmail,
+    #[serde(rename = "DnsFetchFailed")]
+    DnsFetchFailed,
+    #[serde(rename = "DnsInvalidRecord")]
+    DnsInvalidRecord,
+    #[serde(rename = "WellKnownHttpNotFound")]
+    WellKnownHttpNotFound,
+    #[serde(rename = "WellKnownNoResponse")]
+    WellKnownNoResponse,
+    #[serde(rename = "WellKnownInvalidResponse")]
+    WellKnownInvalidResponse,
+    #[serde(rename = "WellKnownListEmpty")]
+    WellKnownListEmpty,
+    #[serde(rename = "WellKnownInvalidContentType")]
+    WellKnownInvalidContentType,
+    #[serde(rename = "WellKnownMissingIssuanceEndpoint")]
+    WellKnownMissingIssuanceEndpoint,
+    #[serde(rename = "WellKnownIssuanceEndpointCrossOrigin")]
+    WellKnownIssuanceEndpointCrossOrigin,
+    #[serde(rename = "WellKnownUnsupportedSigningAlgorithm")]
+    WellKnownUnsupportedSigningAlgorithm,
+    #[serde(rename = "TokenHttpNotFound")]
+    TokenHttpNotFound,
+    #[serde(rename = "TokenNoResponse")]
+    TokenNoResponse,
+    #[serde(rename = "TokenInvalidResponse")]
+    TokenInvalidResponse,
+    #[serde(rename = "TokenInvalidContentType")]
+    TokenInvalidContentType,
+    #[serde(rename = "TokenMalformedSdJwt")]
+    TokenMalformedSdJwt,
+    #[serde(rename = "TokenInvalidSdJwt")]
+    TokenInvalidSdJwt,
+    #[serde(rename = "KeyBindingSigningFailed")]
+    KeyBindingSigningFailed,
+    #[serde(rename = "RpOriginIsOpaque")]
+    RpOriginIsOpaque,
+    #[serde(rename = "WellKnownMissingAccountsEndpoint")]
+    WellKnownMissingAccountsEndpoint,
+    #[serde(rename = "UserLoggedOut")]
+    UserLoggedOut,
+    #[serde(rename = "WellKnownAccountsEndpointCrossOrigin")]
+    WellKnownAccountsEndpointCrossOrigin,
+    #[serde(rename = "AccountsHttpNotFound")]
+    AccountsHttpNotFound,
+    #[serde(rename = "AccountsNoResponse")]
+    AccountsNoResponse,
+    #[serde(rename = "AccountsInvalidResponse")]
+    AccountsInvalidResponse,
+    #[serde(rename = "AccountsInvalidContentType")]
+    AccountsInvalidContentType,
+    #[serde(rename = "AccountsEmptyList")]
+    AccountsEmptyList,
+    #[serde(rename = "EmailVerificationWellKnownHttpNotFound")]
+    EmailVerificationWellKnownHttpNotFound,
+    #[serde(rename = "EmailVerificationWellKnownNoResponse")]
+    EmailVerificationWellKnownNoResponse,
+    #[serde(rename = "EmailVerificationWellKnownInvalidResponse")]
+    EmailVerificationWellKnownInvalidResponse,
+    #[serde(rename = "EmailVerificationWellKnownInvalidContentType")]
+    EmailVerificationWellKnownInvalidContentType,
+    #[serde(rename = "JwksHttpNotFound")]
+    JwksHttpNotFound,
+    #[serde(rename = "JwksInvalidResponse")]
+    JwksInvalidResponse,
+    #[serde(rename = "TokenVerificationSdJwtUnsupportedHeaderAlg")]
+    TokenVerificationSdJwtUnsupportedHeaderAlg,
+    #[serde(rename = "TokenVerificationSdJwtInvalidTyp")]
+    TokenVerificationSdJwtInvalidTyp,
+    #[serde(rename = "TokenVerificationSdJwtMissingIss")]
+    TokenVerificationSdJwtMissingIss,
+    #[serde(rename = "TokenVerificationSdJwtMissingIat")]
+    TokenVerificationSdJwtMissingIat,
+    #[serde(rename = "TokenVerificationSdJwtMissingCnf")]
+    TokenVerificationSdJwtMissingCnf,
+    #[serde(rename = "TokenVerificationSdJwtMissingEmail")]
+    TokenVerificationSdJwtMissingEmail,
+    #[serde(rename = "TokenVerificationSdJwtInvalidIssuedAt")]
+    TokenVerificationSdJwtInvalidIssuedAt,
+    #[serde(rename = "TokenVerificationSdJwtInvalidIssuer")]
+    TokenVerificationSdJwtInvalidIssuer,
+    #[serde(rename = "TokenVerificationSdJwtJwksMissingKeys")]
+    TokenVerificationSdJwtJwksMissingKeys,
+    #[serde(rename = "TokenVerificationSdJwtSignatureFailed")]
+    TokenVerificationSdJwtSignatureFailed,
+    #[serde(rename = "TokenVerificationSdJwtInvalidEmailVerified")]
+    TokenVerificationSdJwtInvalidEmailVerified,
+    #[serde(rename = "TokenVerificationSdJwtInvalidEmail")]
+    TokenVerificationSdJwtInvalidEmail,
+    #[serde(rename = "TokenVerificationSdJwtInvalidHolderKey")]
+    TokenVerificationSdJwtInvalidHolderKey,
+    #[serde(rename = "TokenVerificationKbInvalidTyp")]
+    TokenVerificationKbInvalidTyp,
+    #[serde(rename = "TokenVerificationKbMissingAud")]
+    TokenVerificationKbMissingAud,
+    #[serde(rename = "TokenVerificationKbMissingNonce")]
+    TokenVerificationKbMissingNonce,
+    #[serde(rename = "TokenVerificationKbMissingIat")]
+    TokenVerificationKbMissingIat,
+    #[serde(rename = "TokenVerificationKbMissingSdHash")]
+    TokenVerificationKbMissingSdHash,
+    #[serde(rename = "TokenVerificationKbInvalidIssuedAt")]
+    TokenVerificationKbInvalidIssuedAt,
+    #[serde(rename = "TokenVerificationKbInvalidAudience")]
+    TokenVerificationKbInvalidAudience,
+    #[serde(rename = "TokenVerificationKbInvalidNonce")]
+    TokenVerificationKbInvalidNonce,
+    #[serde(rename = "TokenVerificationKbInvalidSdHash")]
+    TokenVerificationKbInvalidSdHash,
+    #[serde(rename = "TokenVerificationKbMissingCnf")]
+    TokenVerificationKbMissingCnf,
+    #[serde(rename = "TokenVerificationKbSignatureFailed")]
+    TokenVerificationKbSignatureFailed,
+    #[serde(rename = "CrossOriginIframeNotSupported")]
+    CrossOriginIframeNotSupported,
     /// A value this version of the bindings does not know about.
     #[serde(other)]
     UnrecognizedValue,
@@ -1098,12 +1193,18 @@ pub enum ElementAccessibilityIssueReason {
     InteractiveContentLegendChild,
     #[serde(rename = "InteractiveContentSummaryDescendant")]
     InteractiveContentSummaryDescendant,
+    #[serde(rename = "AnchorMenuDescendant")]
+    AnchorMenuDescendant,
+    #[serde(rename = "InteractiveContentMenuDescendant")]
+    InteractiveContentMenuDescendant,
+    #[serde(rename = "TextMenuDescendant")]
+    TextMenuDescendant,
     /// A value this version of the bindings does not know about.
     #[serde(other)]
     UnrecognizedValue,
 }
 
-/// This issue warns about errors in the select or summary element content model.
+/// This issue warns about errors in the select, summary, or menu element content model.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ElementAccessibilityIssueDetails {
     #[serde(rename = "nodeId")]
@@ -1252,6 +1353,10 @@ pub enum PermissionElementIssueType {
     FontSizeTooLarge,
     #[serde(rename = "InvalidSizeValue")]
     InvalidSizeValue,
+    #[serde(rename = "NonSecureContext")]
+    NonSecureContext,
+    #[serde(rename = "MissingTransientUserActivation")]
+    MissingTransientUserActivation,
     /// A value this version of the bindings does not know about.
     #[serde(other)]
     UnrecognizedValue,
@@ -1302,39 +1407,35 @@ pub struct PermissionElementIssueDetails {
     pub disable_reason: Option<String>,
 }
 
-/// Metadata about the ad script that was on the stack that caused the current
-/// script in the `AdAncestry` to be considered ad related.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct AdScriptIdentifier {
-    /// The script's v8 identifier.
-    #[serde(rename = "scriptId")]
-    pub script_id: super::runtime::ScriptId,
-    /// v8's debugging id for the v8::Context.
-    #[serde(rename = "debuggerId")]
-    pub debugger_id: super::runtime::UniqueDebuggerId,
-    /// The script's url (or generated name based on id if inline script).
-    #[serde(rename = "name")]
-    pub name: String,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum WebInstallIssueReason {
+    #[serde(rename = "ManifestParsingOrNetworkError")]
+    ManifestParsingOrNetworkError,
+    #[serde(rename = "StartUrlInvalid")]
+    StartUrlInvalid,
+    #[serde(rename = "ManifestMissingNameOrShortName")]
+    ManifestMissingNameOrShortName,
+    #[serde(rename = "ManifestMissingId")]
+    ManifestMissingId,
+    #[serde(rename = "NoManifest")]
+    NoManifest,
+    /// A value this version of the bindings does not know about.
+    #[serde(other)]
+    UnrecognizedValue,
 }
 
-/// Providence about how an ad script was determined to be such. It is an ad
-/// because its url matched a filterlist rule, or because some other ad script
-/// was on the stack when this script was loaded.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct AdAncestry {
-    /// The ad-script in the stack when the offending script was loaded. This is
-    /// recursive down to the root script that was tagged due to the filterlist
-    /// rule.
-    #[serde(rename = "adAncestryChain")]
-    pub ad_ancestry_chain: Vec<AdScriptIdentifier>,
-    /// The filterlist rule that caused the root (last) script in
-    /// `adAncestry` to be ad-tagged.
+/// This issue reports a failure involving a web app manifest used by a Web
+/// Install operation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WebInstallIssueDetails {
     #[serde(
-        rename = "rootScriptFilterlistRule",
+        rename = "manifestUrl",
         default,
         skip_serializing_if = "Option::is_none"
     )]
-    pub root_script_filterlist_rule: Option<String>,
+    pub manifest_url: Option<String>,
+    #[serde(rename = "reason")]
+    pub reason: WebInstallIssueReason,
 }
 
 /// The issue warns about blocked calls to privacy sensitive APIs via the
@@ -1346,7 +1447,7 @@ pub struct SelectivePermissionsInterventionIssueDetails {
     pub api_name: String,
     /// Why the ad script using the API is considered an ad.
     #[serde(rename = "adAncestry")]
-    pub ad_ancestry: AdAncestry,
+    pub ad_ancestry: super::network::AdAncestry,
     /// The stack trace at the time of the intervention.
     #[serde(
         rename = "stackTrace",
@@ -1354,6 +1455,31 @@ pub struct SelectivePermissionsInterventionIssueDetails {
         skip_serializing_if = "Option::is_none"
     )]
     pub stack_trace: Option<super::runtime::StackTrace>,
+}
+
+/// Details for issues about lazy-loaded images without explicit dimensions.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct LazyLoadImageIssueDetails {
+    /// DOM node of the problematic HTMLImageElement.
+    #[serde(rename = "nodeId")]
+    pub node_id: super::dom::BackendNodeId,
+    /// URL or src attribute of the image.
+    #[serde(rename = "url")]
+    pub url: String,
+    /// Frame containing the image.
+    #[serde(rename = "frameId")]
+    pub frame_id: super::page::FrameId,
+}
+
+/// Details for issues about a page that declares viewport-fit=cover, receives
+/// a non-zero top safe-area inset (e.g. a device cutout or system status bar),
+/// but does not consume env(safe-area-inset-top) anywhere in its CSS while
+/// having DOM content likely to be occluded by that inset.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ViewportFitCoverMissingSafeAreaInsetTopIssueDetails {
+    /// The frame that triggered the issue.
+    #[serde(rename = "frameId")]
+    pub frame_id: super::page::FrameId,
 }
 
 /// A unique identifier for the type of issue. Each type may use one of the
@@ -1375,8 +1501,6 @@ pub enum InspectorIssueCode {
     SharedArrayBufferIssue,
     #[serde(rename = "CorsIssue")]
     CorsIssue,
-    #[serde(rename = "AttributionReportingIssue")]
-    AttributionReportingIssue,
     #[serde(rename = "QuirksModeIssue")]
     QuirksModeIssue,
     #[serde(rename = "PartitioningBlobURLIssue")]
@@ -1419,6 +1543,14 @@ pub enum InspectorIssueCode {
     PerformanceIssue,
     #[serde(rename = "SelectivePermissionsInterventionIssue")]
     SelectivePermissionsInterventionIssue,
+    #[serde(rename = "EmailVerificationRequestIssue")]
+    EmailVerificationRequestIssue,
+    #[serde(rename = "LazyLoadImageIssue")]
+    LazyLoadImageIssue,
+    #[serde(rename = "WebInstallIssue")]
+    WebInstallIssue,
+    #[serde(rename = "ViewportFitCoverMissingSafeAreaInsetTopIssue")]
+    ViewportFitCoverMissingSafeAreaInsetTopIssue,
     /// A value this version of the bindings does not know about.
     #[serde(other)]
     UnrecognizedValue,
@@ -1471,12 +1603,6 @@ pub struct InspectorIssueDetails {
         skip_serializing_if = "Option::is_none"
     )]
     pub cors_issue_details: Option<CorsIssueDetails>,
-    #[serde(
-        rename = "attributionReportingIssueDetails",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub attribution_reporting_issue_details: Option<AttributionReportingIssueDetails>,
     #[serde(
         rename = "quirksModeIssueDetails",
         default,
@@ -1606,6 +1732,31 @@ pub struct InspectorIssueDetails {
     )]
     pub selective_permissions_intervention_issue_details:
         Option<SelectivePermissionsInterventionIssueDetails>,
+    #[serde(
+        rename = "emailVerificationRequestIssueDetails",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub email_verification_request_issue_details: Option<EmailVerificationRequestIssueDetails>,
+    #[serde(
+        rename = "lazyLoadImageIssueDetails",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub lazy_load_image_issue_details: Option<LazyLoadImageIssueDetails>,
+    #[serde(
+        rename = "webInstallIssueDetails",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub web_install_issue_details: Option<WebInstallIssueDetails>,
+    #[serde(
+        rename = "viewportFitCoverMissingSafeAreaInsetTopIssueDetails",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub viewport_fit_cover_missing_safe_area_inset_top_issue_details:
+        Option<ViewportFitCoverMissingSafeAreaInsetTopIssueDetails>,
 }
 
 /// A unique id for a DevTools inspector issue. Allows other entities (e.g.

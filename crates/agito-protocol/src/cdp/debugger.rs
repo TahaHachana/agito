@@ -135,6 +135,19 @@ pub struct Scope {
         skip_serializing_if = "Option::is_none"
     )]
     pub end_location: Option<Location>,
+    /// Present if the scope has no variable values to show. Absent means that
+    /// the scope declares at least one variable with an available value.
+    /// Empty scopes are retained in the scope chain because
+    /// they can be targeted via `evaluateOnCallFrame` (using `scopeNumber`) or
+    /// matched against scopes in source maps.
+    ///
+    /// **Experimental.**
+    #[serde(
+        rename = "emptyReason",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub empty_reason: Option<ScopeEmptyReason>,
 }
 
 /// Search match for resource.
@@ -347,6 +360,15 @@ pub struct EvaluateOnCallFrameParams {
     /// **Experimental.**
     #[serde(rename = "timeout", default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<super::runtime::TimeDelta>,
+    /// Specifies the scope number to evaluate the expression in (default: 0, innermost scope).
+    ///
+    /// **Experimental.**
+    #[serde(
+        rename = "scopeNumber",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub scope_number: Option<i64>,
 }
 
 /// Return value of `Debugger.evaluateOnCallFrame`.
@@ -402,6 +424,33 @@ pub struct GetPossibleBreakpointsReturns {
 impl crate::Command for GetPossibleBreakpointsParams {
     const METHOD: &'static str = "Debugger.getPossibleBreakpoints";
     type Response = GetPossibleBreakpointsReturns;
+}
+
+/// Parameters of `Debugger.getScopeChain`.
+///
+/// Returns the current scope chain of the given call frame. Unlike the scope chain reported
+/// with the `paused` event, it reflects changes made to variables since then (e.g. via
+/// `evaluateOnCallFrame` or `setVariableValue`).
+///
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GetScopeChainParams {
+    /// Call frame identifier to get the scope chain for.
+    #[serde(rename = "callFrameId")]
+    pub call_frame_id: CallFrameId,
+}
+
+/// Return value of `Debugger.getScopeChain`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GetScopeChainReturns {
+    /// Scope chain for the call frame.
+    #[serde(rename = "scopeChain")]
+    pub scope_chain: Vec<Scope>,
+}
+
+impl crate::Command for GetScopeChainParams {
+    const METHOD: &'static str = "Debugger.getScopeChain";
+    type Response = GetScopeChainReturns;
 }
 
 /// Parameters of `Debugger.getScriptSource`.
@@ -1014,13 +1063,9 @@ impl crate::Command for SetReturnValueParams {
 
 /// Parameters of `Debugger.setScriptSource`.
 ///
-/// Edits JavaScript source live.
+/// Live edit is no longer supported and this command always fails with a "no longer available" error.
 ///
-/// In general, functions that are currently on the stack can not be edited with
-/// a single exception: If the edited function is the top-most stack frame and
-/// that is the only activation of that function on the stack. In this case
-/// the live edit will be successful and a `Debugger.restartFrame` for the
-/// top-most function is automatically triggered.
+/// **Deprecated.**
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct SetScriptSourceParams {
     /// Id of the script to edit.
@@ -1210,6 +1255,17 @@ pub struct StepOverParams {
     /// **Experimental.**
     #[serde(rename = "skipList", default, skip_serializing_if = "Option::is_none")]
     pub skip_list: Option<Vec<LocationRange>>,
+    /// Functions whose source range lies within one of the enterRanges are
+    /// entered as if by stepInto, even when they are called (directly or
+    /// indirectly) from a call that is stepped over.
+    ///
+    /// **Experimental.**
+    #[serde(
+        rename = "enterRanges",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub enter_ranges: Option<Vec<LocationRange>>,
 }
 
 /// Return value of `Debugger.stepOver`.
@@ -1557,6 +1613,17 @@ pub enum ScopeType {
     Module,
     #[serde(rename = "wasm-expression-stack")]
     WasmExpressionStack,
+    /// A value this version of the bindings does not know about.
+    #[serde(other)]
+    UnrecognizedValue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ScopeEmptyReason {
+    #[serde(rename = "no-variables")]
+    NoVariables,
+    #[serde(rename = "all-unavailable")]
+    AllUnavailable,
     /// A value this version of the bindings does not know about.
     #[serde(other)]
     UnrecognizedValue,

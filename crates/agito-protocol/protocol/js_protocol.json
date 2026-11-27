@@ -280,6 +280,17 @@
                             "description": "Location in the source code where scope ends",
                             "optional": true,
                             "$ref": "Location"
+                        },
+                        {
+                            "name": "emptyReason",
+                            "description": "Present if the scope has no variable values to show. Absent means that\nthe scope declares at least one variable with an available value.\nEmpty scopes are retained in the scope chain because\nthey can be targeted via `evaluateOnCallFrame` (using `scopeNumber`) or\nmatched against scopes in source maps.",
+                            "experimental": true,
+                            "optional": true,
+                            "type": "string",
+                            "enum": [
+                                "no-variables",
+                                "all-unavailable"
+                            ]
                         }
                     ]
                 },
@@ -507,6 +518,13 @@
                             "experimental": true,
                             "optional": true,
                             "$ref": "Runtime.TimeDelta"
+                        },
+                        {
+                            "name": "scopeNumber",
+                            "description": "Specifies the scope number to evaluate the expression in (default: 0, innermost scope).",
+                            "experimental": true,
+                            "optional": true,
+                            "type": "integer"
                         }
                     ],
                     "returns": [
@@ -552,6 +570,28 @@
                             "type": "array",
                             "items": {
                                 "$ref": "BreakLocation"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "getScopeChain",
+                    "description": "Returns the current scope chain of the given call frame. Unlike the scope chain reported\nwith the `paused` event, it reflects changes made to variables since then (e.g. via\n`evaluateOnCallFrame` or `setVariableValue`).",
+                    "experimental": true,
+                    "parameters": [
+                        {
+                            "name": "callFrameId",
+                            "description": "Call frame identifier to get the scope chain for.",
+                            "$ref": "CallFrameId"
+                        }
+                    ],
+                    "returns": [
+                        {
+                            "name": "scopeChain",
+                            "description": "Scope chain for the call frame.",
+                            "type": "array",
+                            "items": {
+                                "$ref": "Scope"
                             }
                         }
                     ]
@@ -1033,7 +1073,8 @@
                 },
                 {
                     "name": "setScriptSource",
-                    "description": "Edits JavaScript source live.\n\nIn general, functions that are currently on the stack can not be edited with\na single exception: If the edited function is the top-most stack frame and\nthat is the only activation of that function on the stack. In this case\nthe live edit will be successful and a `Debugger.restartFrame` for the\ntop-most function is automatically triggered.",
+                    "description": "Live edit is no longer supported and this command always fails with a \"no longer available\" error.",
+                    "deprecated": true,
                     "parameters": [
                         {
                             "name": "scriptId",
@@ -1183,6 +1224,16 @@
                         {
                             "name": "skipList",
                             "description": "The skipList specifies location ranges that should be skipped on step over.",
+                            "experimental": true,
+                            "optional": true,
+                            "type": "array",
+                            "items": {
+                                "$ref": "LocationRange"
+                            }
+                        },
+                        {
+                            "name": "enterRanges",
+                            "description": "Functions whose source range lies within one of the enterRanges are\nentered as if by stepInto, even when they are called (directly or\nindirectly) from a call that is stepped over.",
                             "experimental": true,
                             "optional": true,
                             "type": "array",
@@ -2363,6 +2414,7 @@
                                 "dataview",
                                 "webassemblymemory",
                                 "wasmvalue",
+                                "deferredmodule",
                                 "trustedtype"
                             ]
                         },
@@ -2374,13 +2426,13 @@
                         },
                         {
                             "name": "value",
-                            "description": "Remote object value in case of primitive values or JSON values (if it was requested).",
+                            "description": "Remote object value in case of primitive values or JSON values (if it was requested).\nNot set in `deep` serialization mode, see `deepSerializedValue`.",
                             "optional": true,
                             "type": "any"
                         },
                         {
                             "name": "unserializableValue",
-                            "description": "Primitive value which can not be JSON-stringified does not have `value`, but gets this\nproperty.",
+                            "description": "Primitive value which can not be JSON-stringified does not have `value`, but gets this\nproperty. Not set in `deep` serialization mode, see `deepSerializedValue`.",
                             "optional": true,
                             "$ref": "UnserializableValue"
                         },
@@ -2482,6 +2534,7 @@
                                 "dataview",
                                 "webassemblymemory",
                                 "wasmvalue",
+                                "deferredmodule",
                                 "trustedtype"
                             ]
                         },
@@ -2578,6 +2631,7 @@
                                 "dataview",
                                 "webassemblymemory",
                                 "wasmvalue",
+                                "deferredmodule",
                                 "trustedtype"
                             ]
                         }

@@ -131,6 +131,25 @@ pub struct Value {
     pub specificity: Option<Specificity>,
 }
 
+/// Contribution of an individual simple selector to specificity.
+///
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SpecificityComponent {
+    /// The simple selector text that contributes to specificity.
+    #[serde(rename = "text")]
+    pub text: String,
+    /// The a component contribution.
+    #[serde(rename = "a")]
+    pub a: i64,
+    /// The b component contribution.
+    #[serde(rename = "b")]
+    pub b: i64,
+    /// The c component contribution.
+    #[serde(rename = "c")]
+    pub c: i64,
+}
+
 /// Specificity:
 /// https://drafts.csswg.org/selectors/#specificity-rules
 ///
@@ -147,6 +166,15 @@ pub struct Specificity {
     /// The c component, which represents the number of type selectors and pseudo-elements.
     #[serde(rename = "c")]
     pub c: i64,
+    /// Per-simple-selector contributions used to explain this specificity.
+    ///
+    /// **Experimental.**
+    #[serde(
+        rename = "components",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub components: Option<Vec<SpecificityComponent>>,
 }
 
 /// Selector list data.
@@ -572,6 +600,11 @@ pub struct MediaQueryExpression {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct CSSContainerQuery {
     /// Container query text.
+    /// Contains the query part without the container name for a single query.
+    /// Deprecated in favor of conditionText which contains the full prelude
+    /// after @container.
+    ///
+    /// **Deprecated.**
     #[serde(rename = "text")]
     pub text: String,
     /// The associated rule header range in the enclosing stylesheet (if
@@ -616,6 +649,9 @@ pub struct CSSContainerQuery {
         skip_serializing_if = "Option::is_none"
     )]
     pub queries_anchored: Option<bool>,
+    /// CSSContainerRule.conditionText
+    #[serde(rename = "conditionText")]
+    pub condition_text: String,
 }
 
 /// CSS Supports at-rule descriptor.
@@ -1022,6 +1058,15 @@ pub struct CSSFunctionRule {
     /// Function body.
     #[serde(rename = "children")]
     pub children: Vec<CSSFunctionNode>,
+    /// The BackendNodeId of the DOM node that constitutes the origin tree scope of this rule.
+    ///
+    /// **Experimental.**
+    #[serde(
+        rename = "originTreeScopeNodeId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub origin_tree_scope_node_id: Option<super::dom::BackendNodeId>,
 }
 
 /// CSS keyframe rule representation.
@@ -1226,6 +1271,29 @@ pub struct ForceStartingStyleReturns {}
 impl crate::Command for ForceStartingStyleParams {
     const METHOD: &'static str = "CSS.forceStartingStyle";
     type Response = ForceStartingStyleReturns;
+}
+
+/// Parameters of `CSS.forcePositionTryOption`.
+///
+/// Forces a position-try option for the given node.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ForcePositionTryOptionParams {
+    /// The element id for which to force the position-try option.
+    #[serde(rename = "nodeId")]
+    pub node_id: super::dom::NodeId,
+    /// The 1-based index of the position-try fallback option, 0 for base position (no fallback),
+    /// or omitted to clear the forced state.
+    #[serde(rename = "index", default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<i64>,
+}
+
+/// Return value of `CSS.forcePositionTryOption`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ForcePositionTryOptionReturns {}
+
+impl crate::Command for ForcePositionTryOptionParams {
+    const METHOD: &'static str = "CSS.forcePositionTryOption";
+    type Response = ForcePositionTryOptionReturns;
 }
 
 /// Parameters of `CSS.getBackgroundColors`.
@@ -1885,8 +1953,9 @@ impl crate::Command for SetMediaTextParams {
 /// Parameters of `CSS.setContainerQueryText`.
 ///
 /// Modifies the expression of a container query.
+/// Deprecated. Use setContainerQueryConditionText instead.
 ///
-/// **Experimental.**
+/// **Experimental.** **Deprecated.**
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct SetContainerQueryTextParams {
     #[serde(rename = "styleSheetId")]
@@ -1908,6 +1977,32 @@ pub struct SetContainerQueryTextReturns {
 impl crate::Command for SetContainerQueryTextParams {
     const METHOD: &'static str = "CSS.setContainerQueryText";
     type Response = SetContainerQueryTextReturns;
+}
+
+/// Parameters of `CSS.setContainerQueryConditionText`.
+///
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SetContainerQueryConditionTextParams {
+    #[serde(rename = "styleSheetId")]
+    pub style_sheet_id: super::dom::StyleSheetId,
+    #[serde(rename = "range")]
+    pub range: SourceRange,
+    #[serde(rename = "text")]
+    pub text: String,
+}
+
+/// Return value of `CSS.setContainerQueryConditionText`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SetContainerQueryConditionTextReturns {
+    /// The resulting CSS container query rule after modification.
+    #[serde(rename = "containerQuery")]
+    pub container_query: CSSContainerQuery,
+}
+
+impl crate::Command for SetContainerQueryConditionTextParams {
+    const METHOD: &'static str = "CSS.setContainerQueryConditionText";
+    type Response = SetContainerQueryConditionTextReturns;
 }
 
 /// Parameters of `CSS.setSupportsText`.
@@ -2262,6 +2357,8 @@ pub enum CSSAtRuleType {
     FontFeatureValues,
     #[serde(rename = "font-palette-values")]
     FontPaletteValues,
+    #[serde(rename = "counter-style")]
+    CounterStyle,
     /// A value this version of the bindings does not know about.
     #[serde(other)]
     UnrecognizedValue,

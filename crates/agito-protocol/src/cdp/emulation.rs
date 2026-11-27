@@ -662,6 +662,26 @@ pub struct SetDeviceMetricsOverrideParams {
         skip_serializing_if = "Option::is_none"
     )]
     pub screen_orientation_lock_emulation: Option<bool>,
+    /// Viewport meta tag behavior. Default: `default`. Note: if `mobile` is `true`,
+    /// the viewport meta tag is always enabled.
+    ///
+    /// **Experimental.**
+    #[serde(
+        rename = "viewportMeta",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub viewport_meta: Option<SetDeviceMetricsOverrideParamsViewportMeta>,
+    /// Text layout mode. Default: `default`. Note: if `mobile` is `true`,
+    /// mobile text layout mode (text autosizing) is always enabled.
+    ///
+    /// **Experimental.**
+    #[serde(
+        rename = "textLayoutMode",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub text_layout_mode: Option<SetDeviceMetricsOverrideParamsTextLayoutMode>,
 }
 
 /// Return value of `Emulation.setDeviceMetricsOverride`.
@@ -1022,7 +1042,6 @@ impl crate::Command for SetPressureSourceOverrideEnabledParams {
 
 /// Parameters of `Emulation.setPressureStateOverride`.
 ///
-/// TODO: OBSOLETE: To remove when setPressureDataOverride is merged.
 /// Provides a given pressure state that will be processed and eventually be
 /// delivered to PressureObserver users. |source| must have been previously
 /// overridden by setPressureSourceOverrideEnabled.
@@ -1043,36 +1062,6 @@ pub struct SetPressureStateOverrideReturns {}
 impl crate::Command for SetPressureStateOverrideParams {
     const METHOD: &'static str = "Emulation.setPressureStateOverride";
     type Response = SetPressureStateOverrideReturns;
-}
-
-/// Parameters of `Emulation.setPressureDataOverride`.
-///
-/// Provides a given pressure data set that will be processed and eventually be
-/// delivered to PressureObserver users. |source| must have been previously
-/// overridden by setPressureSourceOverrideEnabled.
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SetPressureDataOverrideParams {
-    #[serde(rename = "source")]
-    pub source: PressureSource,
-    #[serde(rename = "state")]
-    pub state: PressureState,
-    #[serde(
-        rename = "ownContributionEstimate",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub own_contribution_estimate: Option<f64>,
-}
-
-/// Return value of `Emulation.setPressureDataOverride`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SetPressureDataOverrideReturns {}
-
-impl crate::Command for SetPressureDataOverrideParams {
-    const METHOD: &'static str = "Emulation.setPressureDataOverride";
-    type Response = SetPressureDataOverrideReturns;
 }
 
 /// Parameters of `Emulation.setIdleOverride`.
@@ -1373,6 +1362,31 @@ pub struct SetHardwareConcurrencyOverrideReturns {}
 impl crate::Command for SetHardwareConcurrencyOverrideParams {
     const METHOD: &'static str = "Emulation.setHardwareConcurrencyOverride";
     type Response = SetHardwareConcurrencyOverrideReturns;
+}
+
+/// Parameters of `Emulation.setCPUPerformanceOverride`.
+///
+/// Overrides the value of navigator.cpuPerformance
+///
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SetCPUPerformanceOverrideParams {
+    /// Override value. Omitting the parameter disables the override.
+    #[serde(
+        rename = "performanceTier",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub performance_tier: Option<SetCPUPerformanceOverrideParamsPerformanceTier>,
+}
+
+/// Return value of `Emulation.setCPUPerformanceOverride`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SetCPUPerformanceOverrideReturns {}
+
+impl crate::Command for SetCPUPerformanceOverrideParams {
+    const METHOD: &'static str = "Emulation.setCPUPerformanceOverride";
+    type Response = SetCPUPerformanceOverrideReturns;
 }
 
 /// Parameters of `Emulation.setUserAgentOverride`.
@@ -1745,6 +1759,28 @@ pub enum SetDeviceMetricsOverrideParamsScrollbarType {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SetDeviceMetricsOverrideParamsViewportMeta {
+    #[serde(rename = "enable")]
+    Enable,
+    #[serde(rename = "default")]
+    Default,
+    /// A value this version of the bindings does not know about.
+    #[serde(other)]
+    UnrecognizedValue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SetDeviceMetricsOverrideParamsTextLayoutMode {
+    #[serde(rename = "mobile")]
+    Mobile,
+    #[serde(rename = "default")]
+    Default,
+    /// A value this version of the bindings does not know about.
+    #[serde(other)]
+    UnrecognizedValue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SetEmitTouchEventsForMouseParamsConfiguration {
     #[serde(rename = "mobile")]
     Mobile,
@@ -1771,6 +1807,23 @@ pub enum SetEmulatedVisionDeficiencyParamsType {
     Protanopia,
     #[serde(rename = "tritanopia")]
     Tritanopia,
+    /// A value this version of the bindings does not know about.
+    #[serde(other)]
+    UnrecognizedValue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SetCPUPerformanceOverrideParamsPerformanceTier {
+    #[serde(rename = "unknown")]
+    Unknown,
+    #[serde(rename = "low")]
+    Low,
+    #[serde(rename = "mid")]
+    Mid,
+    #[serde(rename = "high")]
+    High,
+    #[serde(rename = "ultra")]
+    Ultra,
     /// A value this version of the bindings does not know about.
     #[serde(other)]
     UnrecognizedValue,

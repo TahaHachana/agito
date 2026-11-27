@@ -120,6 +120,12 @@ pub struct PreloadingAttemptKey {
     #[serde(rename = "url")]
     pub url: String,
     #[serde(
+        rename = "formSubmission",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub form_submission: Option<bool>,
+    #[serde(
         rename = "targetHint",
         default,
         skip_serializing_if = "Option::is_none"
@@ -302,6 +308,16 @@ pub enum PrerenderFinalStatus {
     BrowsingDataRemoved,
     #[serde(rename = "PrerenderHostReused")]
     PrerenderHostReused,
+    #[serde(rename = "FormSubmitWhenPrerendering")]
+    FormSubmitWhenPrerendering,
+    #[serde(rename = "CrossDocumentRestart")]
+    CrossDocumentRestart,
+    #[serde(rename = "PrefetchFailedCrossOriginSubframe")]
+    PrefetchFailedCrossOriginSubframe,
+    #[serde(rename = "UnexpectedMainFrameNavigation")]
+    UnexpectedMainFrameNavigation,
+    #[serde(rename = "AudioOutput")]
+    AudioOutput,
     /// A value this version of the bindings does not know about.
     #[serde(other)]
     UnrecognizedValue,
@@ -358,8 +374,12 @@ pub enum PrefetchStatus {
     PrefetchIsPrivacyDecoy,
     #[serde(rename = "PrefetchIsStale")]
     PrefetchIsStale,
+    #[serde(rename = "PrefetchNotEligibleBlockedByConnectionAllowlist")]
+    PrefetchNotEligibleBlockedByConnectionAllowlist,
     #[serde(rename = "PrefetchNotEligibleBrowserContextOffTheRecord")]
     PrefetchNotEligibleBrowserContextOffTheRecord,
+    #[serde(rename = "PrefetchNotEligibleCrossOrigin")]
+    PrefetchNotEligibleCrossOrigin,
     #[serde(rename = "PrefetchNotEligibleDataSaverEnabled")]
     PrefetchNotEligibleDataSaverEnabled,
     #[serde(rename = "PrefetchNotEligibleExistingProxy")]
@@ -400,6 +420,8 @@ pub enum PrefetchStatus {
     PrefetchSuccessfulButNotUsed,
     #[serde(rename = "PrefetchNotUsedProbeFailed")]
     PrefetchNotUsedProbeFailed,
+    #[serde(rename = "PrefetchCancelledOnUserNavigation")]
+    PrefetchCancelledOnUserNavigation,
     /// A value this version of the bindings does not know about.
     #[serde(other)]
     UnrecognizedValue,
@@ -532,6 +554,15 @@ pub struct PrerenderStatusUpdatedEvent {
     pub pipeline_id: PreloadPipelineId,
     #[serde(rename = "status")]
     pub status: PreloadingStatus,
+    /// The action currently performed by this attempt. This differs from
+    /// `key.action` after a prerender-until-script attempt is upgraded in place
+    /// to a full prerender.
+    #[serde(
+        rename = "effectiveAction",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub effective_action: Option<SpeculationAction>,
     #[serde(
         rename = "prerenderStatus",
         default,

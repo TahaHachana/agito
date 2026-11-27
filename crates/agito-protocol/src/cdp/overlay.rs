@@ -292,6 +292,74 @@ pub enum ContrastAlgorithm {
     UnrecognizedValue,
 }
 
+/// Configuration for Inset-Modified Containing Block (IMCB) and CSS Anchor Positioning highlight.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ImcbHighlightConfig {
+    /// Border color for the Inset-Modified Containing Block (default: transparent).
+    #[serde(
+        rename = "imcbBorderColor",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub imcb_border_color: Option<super::dom::RGBA>,
+    /// Background fill color for the Inset-Modified Containing Block (default: transparent).
+    #[serde(
+        rename = "imcbBackgroundColor",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub imcb_background_color: Option<super::dom::RGBA>,
+    /// Fill color for the inset modifiers area (difference between CB and IMCB).
+    #[serde(
+        rename = "insetsBackgroundColor",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub insets_background_color: Option<super::dom::RGBA>,
+    /// Hatch color for the inset modifiers area.
+    #[serde(
+        rename = "insetsHatchColor",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub insets_hatch_color: Option<super::dom::RGBA>,
+    /// Border color for the referenced target anchor element(s) (when element is anchor-positioned).
+    #[serde(
+        rename = "anchorBorderColor",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub anchor_border_color: Option<super::dom::RGBA>,
+    /// Background fill color for the referenced target anchor element(s) (when element is anchor-positioned).
+    #[serde(
+        rename = "anchorBackgroundColor",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub anchor_background_color: Option<super::dom::RGBA>,
+    /// Whether to render the 3x3 position-area grid lines when position-area is used.
+    #[serde(
+        rename = "showPositionAreaGrid",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub show_position_area_grid: Option<bool>,
+    /// Line color for the 3x3 position-area grid lines.
+    #[serde(
+        rename = "positionAreaGridLineColor",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub position_area_grid_line_color: Option<super::dom::RGBA>,
+    /// Fill color for the active region within the position-area grid.
+    #[serde(
+        rename = "positionAreaActiveRegionColor",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub position_area_active_region_color: Option<super::dom::RGBA>,
+}
+
 /// Configuration data for the highlighting of page elements.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct HighlightConfig {
@@ -424,6 +492,13 @@ pub struct HighlightConfig {
         skip_serializing_if = "Option::is_none"
     )]
     pub container_query_container_highlight_config: Option<ContainerQueryContainerHighlightConfig>,
+    /// The IMCB highlight configuration (default: all transparent).
+    #[serde(
+        rename = "imcbHighlightConfig",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub imcb_highlight_config: Option<ImcbHighlightConfig>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -524,6 +599,70 @@ pub struct HingeConfig {
         skip_serializing_if = "Option::is_none"
     )]
     pub outline_color: Option<super::dom::RGBA>,
+}
+
+/// Supported display cutout shapes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum DisplayCutoutShape {
+    #[serde(rename = "pill")]
+    Pill,
+    #[serde(rename = "notch")]
+    Notch,
+    #[serde(rename = "circle")]
+    Circle,
+    #[serde(rename = "rectangle")]
+    Rectangle,
+    /// A value this version of the bindings does not know about.
+    #[serde(other)]
+    UnrecognizedValue,
+}
+
+/// Configuration for a display cutout.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DisplayCutoutConfig {
+    /// A rectangle representing the cutout bounds.
+    #[serde(rename = "rect")]
+    pub rect: super::dom::Rect,
+    /// Shape used to draw the cutout.
+    #[serde(rename = "shape")]
+    pub shape: DisplayCutoutShape,
+    /// Border radius for rounded cutout shapes.
+    #[serde(
+        rename = "borderRadius",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub border_radius: Option<i64>,
+    /// Upper shoulder radius for notch cutout shapes.
+    #[serde(
+        rename = "upperRadius",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub upper_radius: Option<i64>,
+    /// Lower transition radius for notch cutout shapes.
+    #[serde(
+        rename = "lowerRadius",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub lower_radius: Option<i64>,
+    /// Center x coordinate for circle cutout shapes.
+    #[serde(rename = "cx", default, skip_serializing_if = "Option::is_none")]
+    pub cx: Option<i64>,
+    /// Center y coordinate for circle cutout shapes.
+    #[serde(rename = "cy", default, skip_serializing_if = "Option::is_none")]
+    pub cy: Option<i64>,
+    /// Radius for circle cutout shapes.
+    #[serde(rename = "radius", default, skip_serializing_if = "Option::is_none")]
+    pub radius: Option<i64>,
+    /// The cutout fill color (default: black).
+    #[serde(
+        rename = "contentColor",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub content_color: Option<super::dom::RGBA>,
 }
 
 /// Configuration for Window Controls Overlay
@@ -1274,6 +1413,29 @@ pub struct SetShowHingeReturns {}
 impl crate::Command for SetShowHingeParams {
     const METHOD: &'static str = "Overlay.setShowHinge";
     type Response = SetShowHingeReturns;
+}
+
+/// Parameters of `Overlay.setShowDisplayCutout`.
+///
+/// Add a display cutout overlay.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SetShowDisplayCutoutParams {
+    /// display cutout data, null means hide display cutout
+    #[serde(
+        rename = "displayCutoutConfig",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub display_cutout_config: Option<DisplayCutoutConfig>,
+}
+
+/// Return value of `Overlay.setShowDisplayCutout`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SetShowDisplayCutoutReturns {}
+
+impl crate::Command for SetShowDisplayCutoutParams {
+    const METHOD: &'static str = "Overlay.setShowDisplayCutout";
+    type Response = SetShowDisplayCutoutReturns;
 }
 
 /// Parameters of `Overlay.setShowIsolatedElements`.

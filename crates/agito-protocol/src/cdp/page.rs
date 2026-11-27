@@ -54,45 +54,6 @@ pub struct AdFrameStatus {
     pub explanations: Option<Vec<AdFrameExplanation>>,
 }
 
-/// Identifies the script which caused a script or frame to be labelled as an
-/// ad.
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct AdScriptId {
-    /// Script Id of the script which caused a script or frame to be labelled as
-    /// an ad.
-    #[serde(rename = "scriptId")]
-    pub script_id: super::runtime::ScriptId,
-    /// Id of scriptId's debugger.
-    #[serde(rename = "debuggerId")]
-    pub debugger_id: super::runtime::UniqueDebuggerId,
-}
-
-/// Encapsulates the script ancestry and the root script filterlist rule that
-/// caused the frame to be labelled as an ad. Only created when `ancestryChain`
-/// is not empty.
-///
-/// **Experimental.**
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct AdScriptAncestry {
-    /// A chain of `AdScriptId`s representing the ancestry of an ad script that
-    /// led to the creation of a frame. The chain is ordered from the script
-    /// itself (lower level) up to its root ancestor that was flagged by
-    /// filterlist.
-    #[serde(rename = "ancestryChain")]
-    pub ancestry_chain: Vec<AdScriptId>,
-    /// The filterlist rule that caused the root (last) script in
-    /// `ancestryChain` to be ad-tagged. Only populated if the rule is
-    /// available.
-    #[serde(
-        rename = "rootScriptFilterlistRule",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub root_script_filterlist_rule: Option<String>,
-}
-
 /// Indicates whether the frame is a secure context and why it is the case.
 ///
 /// **Experimental.**
@@ -158,16 +119,12 @@ pub enum PermissionsPolicyFeature {
     AmbientLightSensor,
     #[serde(rename = "aria-notify")]
     AriaNotify,
-    #[serde(rename = "attribution-reporting")]
-    AttributionReporting,
     #[serde(rename = "autofill")]
     Autofill,
     #[serde(rename = "autoplay")]
     Autoplay,
     #[serde(rename = "bluetooth")]
     Bluetooth,
-    #[serde(rename = "browsing-topics")]
-    BrowsingTopics,
     #[serde(rename = "camera")]
     Camera,
     #[serde(rename = "captured-surface-control")]
@@ -244,8 +201,6 @@ pub enum PermissionsPolicyFeature {
     DirectSockets,
     #[serde(rename = "direct-sockets-multicast")]
     DirectSocketsMulticast,
-    #[serde(rename = "direct-sockets-private")]
-    DirectSocketsPrivate,
     #[serde(rename = "display-capture")]
     DisplayCapture,
     #[serde(rename = "document-domain")]
@@ -256,8 +211,6 @@ pub enum PermissionsPolicyFeature {
     ExecutionWhileOutOfViewport,
     #[serde(rename = "execution-while-not-rendered")]
     ExecutionWhileNotRendered,
-    #[serde(rename = "fenced-unpartitioned-storage-read")]
-    FencedUnpartitionedStorageRead,
     #[serde(rename = "focus-without-user-activation")]
     FocusWithoutUserActivation,
     #[serde(rename = "fullscreen")]
@@ -270,16 +223,14 @@ pub enum PermissionsPolicyFeature {
     Geolocation,
     #[serde(rename = "gyroscope")]
     Gyroscope,
+    #[serde(rename = "haptics")]
+    Haptics,
     #[serde(rename = "hid")]
     Hid,
     #[serde(rename = "identity-credentials-get")]
     IdentityCredentialsGet,
     #[serde(rename = "idle-detection")]
     IdleDetection,
-    #[serde(rename = "interest-cohort")]
-    InterestCohort,
-    #[serde(rename = "join-ad-interest-group")]
-    JoinAdInterestGroup,
     #[serde(rename = "keyboard-map")]
     KeyboardMap,
     #[serde(rename = "language-detector")]
@@ -312,8 +263,6 @@ pub enum PermissionsPolicyFeature {
     Payment,
     #[serde(rename = "picture-in-picture")]
     PictureInPicture,
-    #[serde(rename = "private-aggregation")]
-    PrivateAggregation,
     #[serde(rename = "private-state-token-issuance")]
     PrivateStateTokenIssuance,
     #[serde(rename = "private-state-token-redemption")]
@@ -322,20 +271,16 @@ pub enum PermissionsPolicyFeature {
     PublickeyCredentialsCreate,
     #[serde(rename = "publickey-credentials-get")]
     PublickeyCredentialsGet,
-    #[serde(rename = "record-ad-auction-events")]
-    RecordAdAuctionEvents,
+    #[serde(rename = "publickey-credentials-remote-client-data-json")]
+    PublickeyCredentialsRemoteClientDataJson,
     #[serde(rename = "rewriter")]
     Rewriter,
-    #[serde(rename = "run-ad-auction")]
-    RunAdAuction,
     #[serde(rename = "screen-wake-lock")]
     ScreenWakeLock,
+    #[serde(rename = "semantic-embedder")]
+    SemanticEmbedder,
     #[serde(rename = "serial")]
     Serial,
-    #[serde(rename = "shared-storage")]
-    SharedStorage,
-    #[serde(rename = "shared-storage-select-url")]
-    SharedStorageSelectUrl,
     #[serde(rename = "smart-card")]
     SmartCard,
     #[serde(rename = "speaker-selection")]
@@ -348,8 +293,12 @@ pub enum PermissionsPolicyFeature {
     Summarizer,
     #[serde(rename = "sync-xhr")]
     SyncXhr,
+    #[serde(rename = "tools")]
+    Tools,
     #[serde(rename = "translator")]
     Translator,
+    #[serde(rename = "unbounded-element")]
+    UnboundedElement,
     #[serde(rename = "unload")]
     Unload,
     #[serde(rename = "usb")]
@@ -360,6 +309,8 @@ pub enum PermissionsPolicyFeature {
     VerticalScroll,
     #[serde(rename = "web-app-installation")]
     WebAppInstallation,
+    #[serde(rename = "webnn")]
+    Webnn,
     #[serde(rename = "web-printing")]
     WebPrinting,
     #[serde(rename = "web-share")]
@@ -774,6 +725,13 @@ pub struct ScreencastFrameMetadata {
     /// Frame swap timestamp.
     #[serde(rename = "timestamp", default, skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<super::network::TimeSinceEpoch>,
+    /// Frame swap timestamp as monotonic time.
+    #[serde(
+        rename = "monotonicTimestamp",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub monotonic_timestamp: Option<super::network::MonotonicTime>,
 }
 
 /// Javascript dialog type.
@@ -1063,8 +1021,6 @@ pub struct FileHandler {
     pub action: String,
     #[serde(rename = "name")]
     pub name: String,
-    #[serde(rename = "icons", default, skip_serializing_if = "Option::is_none")]
-    pub icons: Option<Vec<ImageResource>>,
     /// Mimic a map, name is the key, accepts is the value.
     #[serde(rename = "accepts", default, skip_serializing_if = "Option::is_none")]
     pub accepts: Option<Vec<FileFilter>>,
@@ -1276,6 +1232,22 @@ pub struct WebAppManifest {
         skip_serializing_if = "Option::is_none"
     )]
     pub theme_color: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SubApp {
+    /// Display name of the sub-app.
+    #[serde(rename = "name")]
+    pub name: String,
+    /// Scope of the sub-app.
+    #[serde(rename = "scope")]
+    pub scope: String,
+    /// Manifest id of the sub-app.
+    #[serde(rename = "manifestId")]
+    pub manifest_id: String,
+    /// Start URL of the sub-app.
+    #[serde(rename = "startUrl")]
+    pub start_url: String,
 }
 
 /// The type of a frameNavigated event.
@@ -1581,6 +1553,10 @@ pub enum BackForwardCacheNotRestoredReason {
     EmbedderExtensionMessagingForOpenPort,
     #[serde(rename = "EmbedderExtensionSentMessageToCachedFrame")]
     EmbedderExtensionSentMessageToCachedFrame,
+    #[serde(rename = "EmbedderExtensionFrame")]
+    EmbedderExtensionFrame,
+    #[serde(rename = "EmbedderPrivilegedWebContents")]
+    EmbedderPrivilegedWebContents,
     #[serde(rename = "RequestedByWebViewClient")]
     RequestedByWebViewClient,
     #[serde(rename = "PostMessageByWebViewClient")]
@@ -1901,6 +1877,18 @@ pub struct CreateIsolatedWorldParams {
         skip_serializing_if = "Option::is_none"
     )]
     pub grant_univeral_access: Option<bool>,
+    /// An optional content security policy to set for the isolated world.
+    /// If omitted, any existing CSP for the world will be cleared.
+    /// Note that clearing or updating the CSP does not immediately affect the active
+    /// context in the same document because LocalDOMWindow caches the
+    /// ContentSecurityPolicy object. The change takes effect on subsequent
+    /// navigations when a new window context is created.
+    #[serde(
+        rename = "contentSecurityPolicy",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub content_security_policy: Option<String>,
 }
 
 /// Return value of `Page.createIsolatedWorld`.
@@ -2068,7 +2056,7 @@ impl crate::Command for GetManifestIconsParams {
 
 /// Parameters of `Page.getAppId`.
 ///
-/// Returns the unique (PWA) app id.
+/// Returns the unique (PWA) app id, along with IWA bundle ID and parent app info.
 /// Only returns values if the feature flag 'WebAppEnableManifestId' is enabled
 ///
 /// **Experimental.**
@@ -2088,11 +2076,61 @@ pub struct GetAppIdReturns {
         skip_serializing_if = "Option::is_none"
     )]
     pub recommended_id: Option<String>,
+    /// The bundle ID for an Isolated Web App (IWA)
+    #[serde(rename = "bundleId", default, skip_serializing_if = "Option::is_none")]
+    pub bundle_id: Option<String>,
+    /// The name of the parent app if this app is a Sub-App
+    #[serde(
+        rename = "parentAppName",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub parent_app_name: Option<String>,
 }
 
 impl crate::Command for GetAppIdParams {
     const METHOD: &'static str = "Page.getAppId";
     type Response = GetAppIdReturns;
+}
+
+/// Parameters of `Page.getSubApps`.
+///
+/// Returns the list of installed child Sub-Apps for the inspected parent app.
+///
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GetSubAppsParams {}
+
+/// Return value of `Page.getSubApps`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GetSubAppsReturns {
+    #[serde(rename = "subApps")]
+    pub sub_apps: Vec<SubApp>,
+}
+
+impl crate::Command for GetSubAppsParams {
+    const METHOD: &'static str = "Page.getSubApps";
+    type Response = GetSubAppsReturns;
+}
+
+/// Parameters of `Page.getSiblingSubApps`.
+///
+/// Returns the list of sibling Sub-Apps sharing the same parent app if the inspected context is a Sub-App.
+///
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GetSiblingSubAppsParams {}
+
+/// Return value of `Page.getSiblingSubApps`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GetSiblingSubAppsReturns {
+    #[serde(rename = "subApps")]
+    pub sub_apps: Vec<SubApp>,
+}
+
+impl crate::Command for GetSiblingSubAppsParams {
+    const METHOD: &'static str = "Page.getSiblingSubApps";
+    type Response = GetSiblingSubAppsReturns;
 }
 
 /// Parameters of `Page.getAdScriptAncestry`.
@@ -2117,12 +2155,38 @@ pub struct GetAdScriptAncestryReturns {
         default,
         skip_serializing_if = "Option::is_none"
     )]
-    pub ad_script_ancestry: Option<AdScriptAncestry>,
+    pub ad_script_ancestry: Option<super::network::AdAncestry>,
 }
 
 impl crate::Command for GetAdScriptAncestryParams {
     const METHOD: &'static str = "Page.getAdScriptAncestry";
     type Response = GetAdScriptAncestryReturns;
+}
+
+/// Parameters of `Page.getSpellCheckCustomDictionary`.
+///
+/// Returns the words that the frame's document added to its spell check custom
+/// dictionary with `document.spellCheckCustomDictionary.addWords()`, sorted.
+/// Page script cannot read the dictionary back; this lets developers inspect
+/// it.
+///
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GetSpellCheckCustomDictionaryParams {
+    #[serde(rename = "frameId")]
+    pub frame_id: FrameId,
+}
+
+/// Return value of `Page.getSpellCheckCustomDictionary`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GetSpellCheckCustomDictionaryReturns {
+    #[serde(rename = "words")]
+    pub words: Vec<String>,
+}
+
+impl crate::Command for GetSpellCheckCustomDictionaryParams {
+    const METHOD: &'static str = "Page.getSpellCheckCustomDictionary";
+    type Response = GetSpellCheckCustomDictionaryReturns;
 }
 
 /// Parameters of `Page.getFrameTree`.
@@ -2561,6 +2625,18 @@ pub struct ReloadParams {
     /// **Experimental.**
     #[serde(rename = "loaderId", default, skip_serializing_if = "Option::is_none")]
     pub loader_id: Option<super::network::LoaderId>,
+    /// If true and the page has POST data, the browser shows the form
+    /// resubmission dialog before the reload. The command returns after the
+    /// user responds to the dialog. If the user cancels the dialog, the
+    /// command returns an error. The default value is false.
+    ///
+    /// **Experimental.**
+    #[serde(
+        rename = "checkForRepost",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub check_for_repost: Option<bool>,
 }
 
 /// Return value of `Page.reload`.
@@ -3052,13 +3128,31 @@ pub struct StartScreencastParams {
     /// Maximum screenshot height.
     #[serde(rename = "maxHeight", default, skip_serializing_if = "Option::is_none")]
     pub max_height: Option<i64>,
-    /// Send every n-th frame.
+    /// Send every n-th frame. Must be a positive integer.
     #[serde(
         rename = "everyNthFrame",
         default,
         skip_serializing_if = "Option::is_none"
     )]
     pub every_nth_frame: Option<i64>,
+    /// Maximum number of frames sent until screencastFrameAck is required.
+    /// Defaults to 3. Must be a positive integer.
+    #[serde(
+        rename = "maxFramesInFlight",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max_frames_in_flight: Option<i64>,
+    /// By default, after screencastFrameAck arrives, the next produced frame is sent.
+    /// Passing this flag enables storing the last produced frame in memory, which is
+    /// immediately sent upon screencastFrameAck. This way, overall performance is
+    /// traded for a better latency.
+    #[serde(
+        rename = "sendLastFrame",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub send_last_frame: Option<bool>,
 }
 
 /// Return value of `Page.startScreencast`.
@@ -3068,6 +3162,73 @@ pub struct StartScreencastReturns {}
 impl crate::Command for StartScreencastParams {
     const METHOD: &'static str = "Page.startScreencast";
     type Response = StartScreencastReturns;
+}
+
+/// Parameters of `Page.startScreenRecording`.
+///
+/// Starts screencast video recording.
+///
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct StartScreenRecordingParams {
+    #[serde(rename = "audio", default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<bool>,
+    /// Maximum frame width in pixels.
+    #[serde(rename = "maxWidth", default, skip_serializing_if = "Option::is_none")]
+    pub max_width: Option<i64>,
+    /// Maximum frame height in pixels.
+    #[serde(rename = "maxHeight", default, skip_serializing_if = "Option::is_none")]
+    pub max_height: Option<i64>,
+    /// Maximum frame rate in frames per second.
+    #[serde(rename = "frameRate", default, skip_serializing_if = "Option::is_none")]
+    pub frame_rate: Option<i64>,
+    /// The area to record. Defaults to `target`.
+    ///
+    /// **Experimental.**
+    #[serde(
+        rename = "captureArea",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub capture_area: Option<StartScreenRecordingParamsCaptureArea>,
+}
+
+/// Return value of `Page.startScreenRecording`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct StartScreenRecordingReturns {
+    /// A handle of the stream that holds resulting screencast data.
+    ///
+    /// **Experimental.**
+    #[serde(rename = "stream")]
+    pub stream: super::io::StreamHandle,
+}
+
+impl crate::Command for StartScreenRecordingParams {
+    const METHOD: &'static str = "Page.startScreenRecording";
+    type Response = StartScreenRecordingReturns;
+}
+
+/// Parameters of `Page.stopScreenRecording`.
+///
+/// Stops screencast video recording.
+///
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct StopScreenRecordingParams {}
+
+/// Return value of `Page.stopScreenRecording`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct StopScreenRecordingReturns {
+    /// A handle of the stream that holds resulting screencast data.
+    ///
+    /// **Experimental.**
+    #[serde(rename = "stream")]
+    pub stream: super::io::StreamHandle,
+}
+
+impl crate::Command for StopScreenRecordingParams {
+    const METHOD: &'static str = "Page.stopScreenRecording";
+    type Response = StopScreenRecordingReturns;
 }
 
 /// Parameters of `Page.stopLoading`.
@@ -3389,6 +3550,27 @@ pub struct GetAnnotatedPageContentReturns {
 impl crate::Command for GetAnnotatedPageContentParams {
     const METHOD: &'static str = "Page.getAnnotatedPageContent";
     type Response = GetAnnotatedPageContentReturns;
+}
+
+/// Parameters of `Page.setInputVisualization`.
+///
+/// Configures input visualization on the page.
+///
+/// **Experimental.**
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SetInputVisualizationParams {
+    /// Whether to enable click visualization.
+    #[serde(rename = "clicks", default, skip_serializing_if = "Option::is_none")]
+    pub clicks: Option<bool>,
+}
+
+/// Return value of `Page.setInputVisualization`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SetInputVisualizationReturns {}
+
+impl crate::Command for SetInputVisualizationParams {
+    const METHOD: &'static str = "Page.setInputVisualization";
+    type Response = SetInputVisualizationReturns;
 }
 
 /// Payload of the `Page.domContentEventFired` event.
@@ -4023,6 +4205,17 @@ pub enum StartScreencastParamsFormat {
     Jpeg,
     #[serde(rename = "png")]
     Png,
+    /// A value this version of the bindings does not know about.
+    #[serde(other)]
+    UnrecognizedValue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum StartScreenRecordingParamsCaptureArea {
+    #[serde(rename = "target")]
+    Target,
+    #[serde(rename = "browserWindow")]
+    BrowserWindow,
     /// A value this version of the bindings does not know about.
     #[serde(other)]
     UnrecognizedValue,

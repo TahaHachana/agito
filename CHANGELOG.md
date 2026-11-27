@@ -34,6 +34,12 @@
     anything, including its first request.
 
 ### Changed
+- The CDP bindings follow `devtools-protocol` 0.0.1756183 (from 0.0.1596832), adding the
+  `Ads`, `CrashReportContext`, `DigitalCredentials` and `FindInPage` domains. Chrome removed
+  86 definitions in that span, which `agito-protocol` drops too, a breaking change for code
+  using them: among them the Privacy Sandbox enrollment commands, the Storage interest-group
+  and shared-storage events and types, several Audits issue types, and
+  `Network.InterceptionId`.
 - New pages attach through browser-level auto-attach and start paused, so agito sets them up
   before they load anything. Tabs in contexts agito does not own are left running and
   detached.
