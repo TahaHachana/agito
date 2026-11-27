@@ -10,7 +10,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "agito"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "agito",
  "agito-macros",
@@ -32,7 +32,7 @@ dependencies = [
 
 [[package]]
 name = "agito-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "agito",
  "anyhow",
@@ -49,7 +49,7 @@ dependencies = [
 
 [[package]]
 name = "agito-macros"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -58,7 +58,7 @@ dependencies = [
 
 [[package]]
 name = "agito-protocol"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",

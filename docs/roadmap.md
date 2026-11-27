@@ -124,15 +124,15 @@ planned. That way the attribute can be used as `#[agito::test]`.
 | 9 | MCP server | Not started |
 | 10 | Visual runner | Not started |
 
-Releases: 0.1.0 covered phases 0-4 (MVP); 0.2.0 added iframes and network. Popups, uploads,
-downloads, the CLI and the protocol update are unreleased, and go out as 0.3.0.
+Releases: 0.1.0 covered phases 0-4 (MVP); 0.2.0 added iframes and network; 0.3.0 added
+popups, uploads and downloads, the CLI (phase 7), the protocol update and the book.
 
 ### Order of work
 
 The priority is making agito usable by others, so the work goes in this order rather than by
 phase number:
 
-1. **Ship 0.3.0, with documentation.** The book (`book/`) is written and deploys to GitHub
+1. **Ship 0.3.0, with documentation.** Done. The book (`book/`) is written and deploys to GitHub
    Pages from `main`. Merge the CLI work, check that `agito run` and `agito install` pass CI on
    macOS and Windows (until now they have only run on Linux), and release, including the first
    `agito-cli`. Run CI's browser tests through `agito run`, so it is exercised on every push
