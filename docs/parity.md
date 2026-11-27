@@ -1,6 +1,7 @@
 # Motus → agito parity
 
-Tracks the port phase by phase. The MVP covers phases 0-4 for Chromium: enough to write and
+Tracks the port phase by phase. The decisions and the order of work are in
+[roadmap.md](roadmap.md). The MVP covers phases 0-4 for Chromium: enough to write and
 run real browser tests.
 
 | Phase | Scope | Status |

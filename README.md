@@ -8,7 +8,8 @@ registered through the same plugin API third-party code uses.
 agito is a Rust port of Motus, a .NET browser automation framework. It is early (0.2):
 Chromium-based browsers only. See
 [docs/parity.md](https://github.com/TahaHachana/agito/blob/main/docs/parity.md) for what
-has been ported so far.
+has been ported so far and [docs/roadmap.md](https://github.com/TahaHachana/agito/blob/main/docs/roadmap.md)
+for what comes next.
 
 ## A test
 
