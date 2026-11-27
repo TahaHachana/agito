@@ -13,6 +13,10 @@
   `--hide-banners`. Screenshots pick PNG, JPEG or WebP from the output's extension and take
   `--full-page`, `--width`, `--height` and `--quality`. PDFs take `--width`, `--landscape` and
   `--background`.
+- `cargo xtask update-protocol [--version <npm version>] [--dry-run]` vendors a
+  `devtools-protocol` release, shows what changed, regenerates the bindings and checks that
+  the workspace builds. `crates/agito-protocol/protocol/VERSION` records the vendored release
+  (0.0.1596832).
 - Uploads:
   - `locator.set_input_files` takes paths or in-memory `FilePayload`s, works on hidden
     inputs, and clears the input when given `InputFiles::none()`.

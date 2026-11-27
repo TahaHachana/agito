@@ -1,14 +1,23 @@
 //! Developer tasks for the agito workspace.
 //!
-//! `cargo xtask codegen` regenerates the CDP bindings in `crates/agito-protocol/src/cdp`
-//! from the vendored protocol JSON in `crates/agito-protocol/protocol`.
+//! - `cargo xtask codegen [--check]` regenerates the CDP bindings in
+//!   `crates/agito-protocol/src/cdp` from the vendored protocol JSON in
+//!   `crates/agito-protocol/protocol`, or checks that they are current.
+//! - `cargo xtask update-protocol [--version <npm version>] [--dry-run]` vendors a
+//!   `devtools-protocol` release from npm (`latest` by default), shows how it differs, then
+//!   regenerates the bindings and checks that the workspace still builds.
 
 mod codegen;
 mod naming;
 mod schema;
+mod update_protocol;
 
-use std::path::PathBuf;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+
+const USAGE: &str = "usage: cargo xtask codegen [--check]
+       cargo xtask update-protocol [--version <npm version>] [--dry-run]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -20,11 +29,106 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Some("update-protocol") => match parse_update_args(&args[1..]).and_then(|o| run_update(&o))
+        {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("update-protocol failed: {e}");
+                ExitCode::FAILURE
+            }
+        },
         _ => {
-            eprintln!("usage: cargo xtask codegen [--check]");
+            eprintln!("{USAGE}");
             ExitCode::FAILURE
         }
     }
+}
+
+fn parse_update_args(args: &[String]) -> Result<update_protocol::Options, String> {
+    let mut options = update_protocol::Options {
+        version: "latest".into(),
+        dry_run: false,
+    };
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--dry-run" => options.dry_run = true,
+            "--version" => {
+                options.version = args
+                    .next()
+                    .ok_or_else(|| format!("--version needs a value\n{USAGE}"))?
+                    .clone()
+            }
+            other => return Err(format!("unknown argument '{other}'\n{USAGE}")),
+        }
+    }
+    Ok(options)
+}
+
+fn run_update(options: &update_protocol::Options) -> Result<(), String> {
+    let root = workspace_root();
+    let out_dir = root.join("crates/agito-protocol/src/cdp");
+    let outcome = update_protocol::run(options, &root.join("crates/agito-protocol/protocol"))?;
+    if !matches!(
+        outcome,
+        update_protocol::Outcome::Updated | update_protocol::Outcome::UpdatedWithoutChanges
+    ) {
+        return Ok(());
+    }
+
+    let before = read_dir_texts(&out_dir);
+    run_codegen(false)?;
+    let after = read_dir_texts(&out_dir);
+    let changed: Vec<&String> = before
+        .keys()
+        .chain(after.keys())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .filter(|name| before.get(*name) != after.get(*name))
+        .collect();
+    if changed.is_empty() {
+        println!("The generated bindings did not change.");
+        return Ok(());
+    }
+    println!(
+        "Regenerated bindings changed in {} file(s): {}",
+        changed.len(),
+        changed
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+
+    // The bindings compile by construction; the question is whether the engine's use of them
+    // still does, since a renamed field or a removed command breaks it here, not at runtime.
+    println!("Checking that the workspace still builds...");
+    let status = std::process::Command::new(env!("CARGO"))
+        .args(["check", "--workspace", "--all-targets", "--quiet"])
+        .current_dir(&root)
+        .status()
+        .map_err(|e| format!("could not run cargo check: {e}"))?;
+    if !status.success() {
+        return Err(
+            "the workspace no longer builds against the new protocol; the errors above show \
+             where the engine uses what changed"
+                .into(),
+        );
+    }
+    println!("The workspace builds. Run the browser tests before committing.");
+    Ok(())
+}
+
+fn read_dir_texts(dir: &Path) -> BTreeMap<String, String> {
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let text = std::fs::read_to_string(e.path()).ok()?;
+            Some((e.file_name().to_string_lossy().into_owned(), text))
+        })
+        .collect()
 }
 
 fn workspace_root() -> PathBuf {

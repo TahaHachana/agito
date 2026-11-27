@@ -40,6 +40,8 @@ behavior differences.
    (`crates/agito-protocol/src/cdp`). Each command implements `Command` and each event
    implements `Event`. Motus generated bindings too, but the engine never used them; it
    hand-wrote about 237 records instead. CI fails when the bindings are stale.
+   `protocol/VERSION` records the `devtools-protocol` npm release vendored, and
+   `cargo xtask update-protocol` moves to another.
 3. **Concrete handles, no abstractions crate.**
    - `Browser`, `BrowserContext`, `Page`, `Frame`, `Locator`, `ElementHandle`, `Request`,
      `Response`, `Route`, `Download` and `FileChooser` are cheap, `Arc`-backed handles.
@@ -93,7 +95,7 @@ crates/
   agito-cli/        the `agito` binary: install, screenshot, pdf
 samples/
   agito-samples/    page objects and tests ported from Motus.Samples
-xtask/              cargo xtask codegen [--check]
+xtask/              cargo xtask codegen [--check], cargo xtask update-protocol
 scripts/publish.sh  release: checks, package, publish in order, tag
 ```
 
@@ -113,7 +115,7 @@ planned. That way the attribute can be used as `#[agito::test]`.
 | 4 | `expect`, `#[agito::test]`, samples | Done; smaller gaps remain |
 | 5 | Firefox over WebDriver BiDi | Next major engine phase |
 | 6 | Accessibility, performance, coverage, tracing, video | Not started |
-| 7 | CLI | In progress: `install`, `screenshot`, `pdf` done |
+| 7 | CLI | In progress: `install`, `screenshot`, `pdf`, `update-protocol` done |
 | 8 | Recorder, codegen, check-selectors | Not started |
 | 9 | MCP server | Not started |
 | 10 | Visual runner | Not started |
@@ -165,8 +167,12 @@ and downloads are unreleased.
   Chromium revision or channel. It writes the `~/.agito/browsers` markers the launcher reads.
   Installing Firefox comes with phase 5.
 - **`screenshot` and `pdf`:** done.
-- **`update-protocol`:** fetches the new protocol JSON, regenerates the bindings and shows a
-  diff.
+- **`update-protocol`:** done, as `cargo xtask update-protocol` rather than an `agito`
+  subcommand. It rewrites the bindings checked into this repository, so it only works in an
+  agito checkout; the published CLI would have nothing to act on. It fetches a
+  `devtools-protocol` release from npm, checks its sha512, shows what changed per domain
+  (commands, events and types added, removed or redefined), regenerates the bindings and runs
+  `cargo check`. `--dry-run` only shows the differences.
 - **`run [cargo test args]`:**
   - Runs `cargo test` (or nextest) with environment variables the harness honors: results
     directory, sharding by stable hash, retries, quarantine, accessibility and performance

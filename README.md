@@ -178,7 +178,7 @@ Variables: `AGITO_HEADLESS`, `AGITO_CHANNEL`, `AGITO_SLOWMO`, `AGITO_LAUNCH_TIME
 | `crates/agito-macros` | `#[agito::test]` and `#[agito::plugin]` |
 | `crates/agito-protocol` | CDP bindings generated from the vendored protocol JSON |
 | `samples/agito-samples` | Example page object and tests, ported from Motus.Samples |
-| `xtask` | Developer tasks: `cargo xtask codegen` |
+| `xtask` | Developer tasks: `cargo xtask codegen`, `cargo xtask update-protocol` |
 
 ## Development
 
@@ -187,6 +187,7 @@ cargo test --workspace                     # unit tests, no browser needed
 cargo test -p agito -p agito-samples -p agito-cli \
   --features agito/integration,agito-samples/integration,agito-cli/integration   # drives a real Chrome/Chromium
 cargo xtask codegen [--check]              # regenerate (or verify) the CDP bindings
+cargo xtask update-protocol [--dry-run]    # vendor the latest devtools-protocol and regenerate
 cargo run -p agito --example screenshot -- https://example.com shot.png
 ```
 
