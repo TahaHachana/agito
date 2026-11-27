@@ -140,6 +140,7 @@ pub(crate) struct ContextInner {
     pub hooks: Vec<Arc<dyn LifecycleHook>>,
     plugin_host: PluginHost,
     pub init_scripts: Mutex<Vec<String>>,
+    pub routes: Mutex<Vec<crate::network::RouteEntry>>,
     pages: Mutex<Vec<Weak<PageInner>>>,
     closed: AtomicBool,
 }
@@ -163,6 +164,7 @@ impl BrowserContext {
             hooks: host.hooks(),
             plugin_host: host,
             init_scripts: Mutex::new(Vec::new()),
+            routes: Mutex::new(Vec::new()),
             pages: Mutex::new(Vec::new()),
             closed: AtomicBool::new(false),
         });
@@ -190,6 +192,9 @@ impl BrowserContext {
             .send(&target::CreateTargetParams {
                 url: "about:blank".into(),
                 browser_context_id: Some(self.inner.id.clone()),
+                // Each page gets its own window, so opening a page never hides another: a
+                // background tab does not render, and input sent to it stalls.
+                new_window: Some(true),
                 ..Default::default()
             })
             .await?;
@@ -263,6 +268,35 @@ impl BrowserContext {
         self.inner.init_scripts.lock().unwrap().push(script.clone());
         for page in self.pages() {
             page.add_init_script(script.clone()).await?;
+        }
+        Ok(())
+    }
+
+    /// Intercepts matching requests from every page in this context, current and future.
+    /// Page routes take precedence. See [`Page::route`].
+    pub async fn route<F, Fut>(
+        &self,
+        pattern: impl Into<crate::network::RoutePattern>,
+        handler: F,
+    ) -> Result<crate::network::RouteId>
+    where
+        F: Fn(std::sync::Arc<crate::network::Route>) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let entry = crate::network::make_route_entry(pattern.into(), handler);
+        let id = crate::network::RouteId(entry.id);
+        self.inner.routes.lock().unwrap().push(entry);
+        for page in self.pages() {
+            page.sync_fetch().await?;
+        }
+        Ok(id)
+    }
+
+    /// Removes a route added with [`BrowserContext::route`].
+    pub async fn unroute(&self, id: crate::network::RouteId) -> Result<()> {
+        self.inner.routes.lock().unwrap().retain(|r| r.id != id.0);
+        for page in self.pages() {
+            page.sync_fetch().await?;
         }
         Ok(())
     }

@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
-use agito_protocol::cdp::{emulation, network, page as cdp_page, runtime, security, target};
+use agito_protocol::cdp::{emulation, fetch, network, page as cdp_page, runtime, security, target};
 use base64::Engine;
 use regex::Regex;
 use serde::Serialize;
@@ -21,6 +21,10 @@ use crate::error::{Error, ErrorKind, Result};
 use crate::frame::{Frame, FrameLocator};
 use crate::input::{Keyboard, Mouse};
 use crate::locator::Locator;
+use crate::network::{
+    NetworkEvent, NetworkState, Request, RequestStateUpdate, ResponseData, RouteId, RoutePattern,
+    find_route, handle_paused, make_route_entry,
+};
 use crate::transport::{Session, SessionRegistry};
 
 /// When a navigation counts as finished.
@@ -57,46 +61,7 @@ pub struct NavigateOptions {
     pub referer: Option<String>,
 }
 
-/// The main document's HTTP response.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Response {
-    pub url: String,
-    pub status: u16,
-    pub status_text: String,
-    pub headers: HashMap<String, String>,
-    pub mime_type: String,
-}
-
-impl Response {
-    /// Whether the status is 2xx.
-    pub fn ok(&self) -> bool {
-        (200..300).contains(&self.status)
-    }
-
-    fn from_cdp(r: network::Response) -> Self {
-        let headers = r
-            .headers
-            .as_object()
-            .map(|o| {
-                o.iter()
-                    .map(|(k, v)| {
-                        (
-                            k.to_ascii_lowercase(),
-                            v.as_str().unwrap_or_default().to_owned(),
-                        )
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        Self {
-            url: r.url,
-            status: r.status as u16,
-            status_text: r.status_text,
-            headers,
-            mime_type: r.mime_type,
-        }
-    }
-}
+pub use crate::network::Response;
 
 /// Image format for screenshots.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -254,6 +219,17 @@ type BoxFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
 type DialogHandler = Arc<dyn Fn(Dialog) -> BoxFuture + Send + Sync>;
 type ConsoleHandler = Arc<dyn Fn(&ConsoleMessage) + Send + Sync>;
 type ErrorHandler = Arc<dyn Fn(&str) + Send + Sync>;
+type RequestHandler = Arc<dyn Fn(&Request) + Send + Sync>;
+type ResponseHandler = Arc<dyn Fn(&Response) + Send + Sync>;
+
+/// Handlers for network events, by kind.
+#[derive(Default)]
+struct NetworkHandlers {
+    request: Vec<RequestHandler>,
+    response: Vec<ResponseHandler>,
+    finished: Vec<RequestHandler>,
+    failed: Vec<RequestHandler>,
+}
 
 #[derive(Debug, Clone)]
 pub(crate) enum PageEvent {
@@ -374,6 +350,9 @@ pub(crate) struct PageInner {
     console_handlers: Mutex<Vec<ConsoleHandler>>,
     error_handlers: Mutex<Vec<ErrorHandler>>,
     dialog_handlers: Mutex<Vec<DialogHandler>>,
+    network_handlers: Mutex<NetworkHandlers>,
+    pub(crate) network: Mutex<NetworkState>,
+    pub(crate) network_events: broadcast::Sender<NetworkEvent>,
     mouse: Mouse,
     keyboard: Keyboard,
     closed: AtomicBool,
@@ -396,6 +375,22 @@ impl PageInner {
 
     pub(crate) fn is_closed(&self) -> bool {
         self.closed.load(Ordering::SeqCst)
+    }
+
+    /// Calls network handlers and wakes waiters, outside any lock.
+    fn dispatch_network(&self, events: Vec<NetworkEvent>) {
+        for event in events {
+            {
+                let handlers = self.network_handlers.lock().unwrap();
+                match &event {
+                    NetworkEvent::Request(r) => handlers.request.iter().for_each(|h| h(r)),
+                    NetworkEvent::Response(r) => handlers.response.iter().for_each(|h| h(r)),
+                    NetworkEvent::RequestFinished(r) => handlers.finished.iter().for_each(|h| h(r)),
+                    NetworkEvent::RequestFailed(r) => handlers.failed.iter().for_each(|h| h(r)),
+                }
+            }
+            let _ = self.network_events.send(event);
+        }
     }
 
     /// The session that owns `frame_id`.
@@ -430,7 +425,11 @@ const PAGE_EVENTS: &[&str] = &[
     "Runtime.executionContextsCleared",
     "Runtime.consoleAPICalled",
     "Runtime.exceptionThrown",
+    "Network.requestWillBeSent",
     "Network.responseReceived",
+    "Network.loadingFinished",
+    "Network.loadingFailed",
+    "Fetch.requestPaused",
     "Target.attachedToTarget",
     "Target.detachedFromTarget",
     "Inspector.targetCrashed",
@@ -459,6 +458,9 @@ impl Page {
             console_handlers: Mutex::new(Vec::new()),
             error_handlers: Mutex::new(Vec::new()),
             dialog_handlers: Mutex::new(Vec::new()),
+            network_handlers: Mutex::new(NetworkHandlers::default()),
+            network: Mutex::new(NetworkState::default()),
+            network_events: broadcast::channel(4096).0,
             mouse: Mouse::new(session.clone()),
             keyboard: Keyboard::new(session.clone()),
             closed: AtomicBool::new(false),
@@ -554,6 +556,8 @@ impl Page {
                 }
             }
         }
+        // Routes registered on the context before this page existed apply to it too.
+        page.sync_fetch().await?;
         // Out-of-process iframes attach as targets; flatten them onto this connection.
         attach_iframes(&session).await?;
         Ok(page)
@@ -1031,6 +1035,313 @@ impl Page {
         }
     }
 
+    /// Calls `handler` for every request the page (or any of its frames) starts.
+    pub fn on_request(&self, handler: impl Fn(&Request) + Send + Sync + 'static) {
+        self.inner
+            .network_handlers
+            .lock()
+            .unwrap()
+            .request
+            .push(Arc::new(handler));
+    }
+
+    /// Calls `handler` for every response, once its headers arrive.
+    pub fn on_response(&self, handler: impl Fn(&Response) + Send + Sync + 'static) {
+        self.inner
+            .network_handlers
+            .lock()
+            .unwrap()
+            .response
+            .push(Arc::new(handler));
+    }
+
+    /// Calls `handler` for every request that finished loading.
+    pub fn on_request_finished(&self, handler: impl Fn(&Request) + Send + Sync + 'static) {
+        self.inner
+            .network_handlers
+            .lock()
+            .unwrap()
+            .finished
+            .push(Arc::new(handler));
+    }
+
+    /// Calls `handler` for every request that failed (see [`Request::failure`]).
+    pub fn on_request_failed(&self, handler: impl Fn(&Request) + Send + Sync + 'static) {
+        self.inner
+            .network_handlers
+            .lock()
+            .unwrap()
+            .failed
+            .push(Arc::new(handler));
+    }
+
+    /// Waits for a request whose URL matches. Starts listening as soon as it is called, so
+    /// create the future before triggering the request:
+    ///
+    /// ```no_run
+    /// # async fn demo(page: agito::Page) -> agito::Result<()> {
+    /// let request = page.wait_for_request("**/api/search*", None);
+    /// page.locator("button#search").click().await?;
+    /// let request = request.await?;
+    /// # Ok(()) }
+    /// ```
+    pub fn wait_for_request(
+        &self,
+        matcher: impl Into<UrlMatcher>,
+        timeout: Option<Duration>,
+    ) -> impl Future<Output = Result<Request>> + Send + 'static {
+        let matcher = matcher.into();
+        self.network_waiter(timeout, "request", matcher.describe(), move |e| match e {
+            NetworkEvent::Request(r) if matcher.matches(r.url()) => Some(r.clone()),
+            _ => None,
+        })
+    }
+
+    /// Waits for a response whose URL matches. Starts listening as soon as it is called; see
+    /// [`Page::wait_for_request`].
+    pub fn wait_for_response(
+        &self,
+        matcher: impl Into<UrlMatcher>,
+        timeout: Option<Duration>,
+    ) -> impl Future<Output = Result<Response>> + Send + 'static {
+        let matcher = matcher.into();
+        self.network_waiter(timeout, "response", matcher.describe(), move |e| match e {
+            NetworkEvent::Response(r) if matcher.matches(r.url()) => Some(r.clone()),
+            _ => None,
+        })
+    }
+
+    fn network_waiter<T: Send + 'static>(
+        &self,
+        timeout: Option<Duration>,
+        what: &'static str,
+        description: String,
+        mut pick: impl FnMut(&NetworkEvent) -> Option<T> + Send + 'static,
+    ) -> impl Future<Output = Result<T>> + Send + 'static {
+        let mut events = self.inner.network_events.subscribe();
+        let mut closed = self.inner.events.subscribe();
+        let timeout = timeout.unwrap_or(self.inner.context.options().navigation_timeout);
+        let page = self.clone();
+        async move {
+            let wait = async {
+                loop {
+                    tokio::select! {
+                        event = events.recv() => match event {
+                            Ok(e) => if let Some(found) = pick(&e) { return Ok(found) },
+                            Err(broadcast::error::RecvError::Lagged(_)) => {}
+                            Err(broadcast::error::RecvError::Closed) => return Err(page.closed_error()),
+                        },
+                        event = closed.recv() => {
+                            if matches!(event, Ok(PageEvent::Closed) | Err(broadcast::error::RecvError::Closed)) {
+                                return Err(page.closed_error());
+                            }
+                        }
+                    }
+                }
+            };
+            tokio::time::timeout(timeout, wait)
+                .await
+                .unwrap_or_else(|_| {
+                    Err(ErrorKind::WaitTimeout {
+                        condition: format!("{what} matching {description}"),
+                        timeout,
+                        last_evaluated_value: None,
+                        message: format!(
+                            "Timed out after {}ms waiting for a {what} matching {description}.",
+                            timeout.as_millis()
+                        ),
+                    }
+                    .into())
+                })
+        }
+    }
+
+    /// Waits until no request has been in flight for `idle` (500ms is typical). Useful after
+    /// an action that starts background requests.
+    pub async fn wait_for_network_idle(
+        &self,
+        idle: Duration,
+        timeout: Option<Duration>,
+    ) -> Result<()> {
+        self.ensure_open()?;
+        let timeout = timeout.unwrap_or(self.inner.context.options().navigation_timeout);
+        let deadline = Instant::now() + timeout;
+        let mut events = self.inner.network_events.subscribe();
+        loop {
+            let in_flight = self.inner.network.lock().unwrap().requests.len();
+            let now = Instant::now();
+            if now >= deadline {
+                return Err(ErrorKind::WaitTimeout {
+                    condition: "network idle".into(),
+                    timeout,
+                    last_evaluated_value: Some(format!("{in_flight} request(s) in flight")),
+                    message: format!(
+                        "The network was still busy after {}ms ({in_flight} request(s) in flight).",
+                        timeout.as_millis()
+                    ),
+                }
+                .into());
+            }
+            if in_flight == 0 {
+                // Quiet so far: idle once `idle` passes with no new request.
+                let quiet_until = (now + idle).min(deadline);
+                let started = loop {
+                    match tokio::time::timeout_at(quiet_until.into(), events.recv()).await {
+                        Err(_) => break false,
+                        Ok(Ok(NetworkEvent::Request(_))) => break true,
+                        Ok(Err(broadcast::error::RecvError::Closed)) => {
+                            return Err(self.closed_error());
+                        }
+                        Ok(_) => {}
+                    }
+                };
+                if !started && quiet_until < deadline {
+                    return Ok(());
+                }
+            } else {
+                let _ = tokio::time::timeout_at(deadline.into(), events.recv()).await;
+            }
+        }
+    }
+
+    /// Intercepts requests whose URL matches `pattern` (a glob like `**/api/**`, a regex, or a
+    /// plain string any matching URL contains). The handler fulfills, continues or aborts the
+    /// [`Route`](crate::network::Route); if it does none of these the request goes through
+    /// unchanged. The most recently added matching route handles a request.
+    ///
+    /// ```no_run
+    /// # async fn demo(page: agito::Page) -> agito::Result<()> {
+    /// use agito::network::FulfillOptions;
+    /// page.route("**/api/user", |route| async move {
+    ///     let _ = route.fulfill(FulfillOptions::json(&serde_json::json!({ "name": "Ada" }))).await;
+    /// })
+    /// .await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn route<F, Fut>(
+        &self,
+        pattern: impl Into<RoutePattern>,
+        handler: F,
+    ) -> Result<RouteId>
+    where
+        F: Fn(Arc<crate::network::Route>) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        let entry = make_route_entry(pattern.into(), handler);
+        let id = RouteId(entry.id);
+        self.inner.network.lock().unwrap().routes.push(entry);
+        self.sync_fetch().await?;
+        Ok(id)
+    }
+
+    /// Removes a route added with [`Page::route`].
+    pub async fn unroute(&self, id: RouteId) -> Result<()> {
+        self.inner
+            .network
+            .lock()
+            .unwrap()
+            .routes
+            .retain(|r| r.id != id.0);
+        self.sync_fetch().await
+    }
+
+    /// Removes every route added with [`Page::route`].
+    pub async fn unroute_all(&self) -> Result<()> {
+        self.inner.network.lock().unwrap().routes.clear();
+        self.sync_fetch().await
+    }
+
+    /// Turns request interception on or off in every session of the page, to match whether
+    /// any page or context route exists.
+    pub(crate) async fn sync_fetch(&self) -> Result<()> {
+        if self.is_closed() {
+            return Ok(());
+        }
+        let mut sessions = vec![self.inner.session.clone()];
+        sessions.extend(
+            self.inner
+                .state
+                .lock()
+                .unwrap()
+                .child_sessions
+                .values()
+                .cloned(),
+        );
+        for session in sessions {
+            match self.sync_fetch_on(&session).await {
+                Err(e) if e.is_browser_lost() => {}
+                other => other?,
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn sync_fetch_on(&self, session: &Arc<dyn Session>) -> Result<()> {
+        let want = !self.inner.network.lock().unwrap().routes.is_empty()
+            || !self.inner.context.inner.routes.lock().unwrap().is_empty();
+        let key = session.session_id().unwrap_or_default().to_owned();
+        let enabled = self
+            .inner
+            .network
+            .lock()
+            .unwrap()
+            .fetch_sessions
+            .contains(&key);
+        if want && !enabled {
+            session
+                .send(&fetch::EnableParams {
+                    patterns: Some(vec![fetch::RequestPattern {
+                        url_pattern: Some("*".into()),
+                        resource_type: None,
+                        request_stage: Some(fetch::RequestStage::Request),
+                    }]),
+                    handle_auth_requests: None,
+                })
+                .await?;
+            self.inner
+                .network
+                .lock()
+                .unwrap()
+                .fetch_sessions
+                .insert(key);
+        } else if !want && enabled {
+            session.send(&fetch::DisableParams::default()).await?;
+            self.inner
+                .network
+                .lock()
+                .unwrap()
+                .fetch_sessions
+                .remove(&key);
+        }
+        Ok(())
+    }
+
+    /// Starts recording a HAR log of everything the page loads.
+    pub fn start_har(&self) {
+        self.inner.network.lock().unwrap().har = Some(Default::default());
+    }
+
+    /// Stops recording and returns the HAR log as JSON, or `None` if no recording was running.
+    pub fn stop_har(&self) -> Option<Value> {
+        self.inner
+            .network
+            .lock()
+            .unwrap()
+            .har
+            .take()
+            .map(|h| h.to_har())
+    }
+
+    /// Stops recording and writes the HAR log to `path`.
+    pub fn stop_har_to(&self, path: impl AsRef<std::path::Path>) -> Result<()> {
+        let path = path.as_ref();
+        let har = self.stop_har().ok_or_else(|| {
+            Error::invalid_argument("no HAR recording is running; call start_har first")
+        })?;
+        let text = serde_json::to_string_pretty(&har).expect("HAR serializes");
+        std::fs::write(path, text).map_err(|e| Error::io(format!("writing {}", path.display()), e))
+    }
+
     /// A locator for `selector` in the main frame. Selectors are CSS by default; a `prefix=`
     /// picks another strategy (`text=`, `xpath=`, `role=`, `data-testid=`, ...).
     pub fn locator(&self, selector: &str) -> Locator {
@@ -1115,6 +1426,7 @@ async fn adopt_iframe(page: Page, session_id: String, frame_id: String) {
     page.start_pump(session.clone(), Some(session_id.clone()));
     let setup = async {
         enable_session(&session).await?;
+        page.sync_fetch_on(&session).await?;
         attach_iframes(&session).await?;
         let tree = session
             .send(&cdp_page::GetFrameTreeParams::default())
@@ -1339,19 +1651,110 @@ async fn event_pump(
                         .remove_session(session_id);
                 }
             }
+            "Network.requestWillBeSent" => {
+                let Ok(e) = serde_json::from_value::<network::RequestWillBeSentEvent>(params)
+                else {
+                    continue;
+                };
+                let mut out = Vec::new();
+                {
+                    let mut net = inner.network.lock().unwrap();
+                    // A redirect reuses the request id: the old request ends with its response.
+                    if let (Some(redirect), Some(previous)) =
+                        (&e.redirect_response, net.requests.remove(&e.request_id))
+                    {
+                        let data = ResponseData::from_cdp(redirect, &e.request_id, session.clone());
+                        previous.set_response(data.clone());
+                        previous.finish(RequestStateUpdate::Finished);
+                        out.push(NetworkEvent::Response(Response::new(
+                            data,
+                            Some(previous.clone()),
+                        )));
+                        out.push(NetworkEvent::RequestFinished(previous));
+                    }
+                    let request = Request::from_cdp(
+                        e.request_id.clone(),
+                        &e.request,
+                        e.r#type,
+                        e.frame_id.clone(),
+                        Arc::downgrade(&inner),
+                    );
+                    net.requests.insert(e.request_id.clone(), request.clone());
+                    if let Some(har) = &mut net.har {
+                        har.on_request(&e);
+                    }
+                    out.push(NetworkEvent::Request(request));
+                }
+                inner.dispatch_network(out);
+            }
             "Network.responseReceived" => {
                 let Ok(e) = serde_json::from_value::<network::ResponseReceivedEvent>(params) else {
                     continue;
                 };
-                if e.r#type != network::ResourceType::Document {
-                    continue;
+                let data = ResponseData::from_cdp(&e.response, &e.request_id, session.clone());
+                let response = {
+                    let mut net = inner.network.lock().unwrap();
+                    if let Some(har) = &mut net.har {
+                        har.on_response(&e);
+                    }
+                    let request = net.requests.get(&e.request_id).cloned();
+                    if let Some(r) = &request {
+                        r.set_response(data.clone());
+                    }
+                    Response::new(data, request)
+                };
+                if e.r#type == network::ResourceType::Document {
+                    inner
+                        .state
+                        .lock()
+                        .unwrap()
+                        .document_responses
+                        .insert(e.loader_id.clone(), response.clone());
                 }
-                inner
-                    .state
-                    .lock()
-                    .unwrap()
-                    .document_responses
-                    .insert(e.loader_id, Response::from_cdp(e.response));
+                inner.dispatch_network(vec![NetworkEvent::Response(response)]);
+            }
+            "Network.loadingFinished" | "Network.loadingFailed" => {
+                let Some(id) = params["requestId"].as_str() else {
+                    continue;
+                };
+                let failed = event.method == "Network.loadingFailed";
+                let error = params["errorText"].as_str().unwrap_or("failed").to_owned();
+                let request = {
+                    let mut net = inner.network.lock().unwrap();
+                    if let Some(har) = &mut net.har {
+                        har.on_end(
+                            id,
+                            params["timestamp"].as_f64().unwrap_or(0.0),
+                            params["encodedDataLength"].as_f64().unwrap_or(0.0),
+                            failed.then_some(error.as_str()),
+                        );
+                    }
+                    net.requests.remove(id)
+                };
+                let Some(request) = request else { continue };
+                if failed {
+                    request.finish(RequestStateUpdate::Failed(error));
+                    inner.dispatch_network(vec![NetworkEvent::RequestFailed(request)]);
+                } else {
+                    request.finish(RequestStateUpdate::Finished);
+                    inner.dispatch_network(vec![NetworkEvent::RequestFinished(request)]);
+                }
+            }
+            "Fetch.requestPaused" => {
+                let Ok(e) = serde_json::from_value::<fetch::RequestPausedEvent>(params) else {
+                    continue;
+                };
+                let route = {
+                    let page_routes = inner.network.lock().unwrap().routes.clone();
+                    let context_routes = inner.context.inner.routes.lock().unwrap().clone();
+                    find_route(&page_routes, &context_routes, &e.request.url)
+                };
+                tokio::spawn(handle_paused(
+                    Arc::downgrade(&inner),
+                    session.clone(),
+                    e,
+                    route,
+                ));
             }
             "Runtime.consoleAPICalled" => {
                 let Ok(e) = serde_json::from_value::<runtime::ConsoleAPICalledEvent>(params) else {

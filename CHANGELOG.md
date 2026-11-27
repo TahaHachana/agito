@@ -3,6 +3,17 @@
 ## 0.2.0 (unreleased)
 
 ### Added
+- Network:
+  - `Request` and `Response` objects: headers, post data, resource type, frame, failure,
+    the request behind a response, and `body()`, `text()` and `json()`.
+  - `page.on_request`, `on_response`, `on_request_finished` and `on_request_failed`.
+  - `page.wait_for_request` and `page.wait_for_response` start listening when called, so
+    an action started afterwards cannot outrun them.
+  - `page.wait_for_network_idle`.
+  - Routing with `page.route` / `context.route` (glob, regex, predicate or substring) to
+    `fulfill`, `continue_` or `abort` requests, plus `unroute` and `unroute_all`. This works
+    for documents and inside out-of-process iframes.
+  - HAR 1.2 recording with `page.start_har`, `stop_har` and `stop_har_to`.
 - Iframe support, same-origin and cross-origin (out-of-process):
   - `Frame`: `page.main_frame()`, `page.frames()`, `page.frame(name)`, `page.frame_by_url(..)`.
     A frame has `goto`, `evaluate`, `evaluate_with`, `content`, `set_content`, `title`,
@@ -17,6 +28,11 @@
     handlers.
 
 ### Fixed
+- Actions on a page stalled for about 5s after another page was opened in the same context.
+  The older page became a hidden background tab that does not render, so input sent to it
+  waited for a frame. Each page now opens in its own window.
+- `evaluate::<()>` no longer fails when the expression returns a value; decoding into `()`
+  discards it.
 - Chromium failed to launch on CI runners and other machines that cannot start its sandbox,
   such as Ubuntu 23.10+ with a browser outside its packaged install path. Launch errors that
   mention the sandbox now say what to do.
@@ -28,6 +44,9 @@
 - `Error`'s `Debug` output is the error message; use `{:#?}` for the structured form.
 
 ### Changed (breaking)
+- `Response` is now a handle with accessor methods (`status()`, `url()`, `headers()`,
+  `header()`, `ok()`, ...) instead of public fields. `Response::synthetic` builds one for
+  tests.
 - `SelectorStrategy::resolve` takes `frame: &Frame` instead of `page: &Page`;
   `selectors::eval_to_handles` likewise.
 

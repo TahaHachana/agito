@@ -30,6 +30,7 @@ pub mod harness;
 pub mod input;
 pub mod launch;
 pub mod locator;
+pub mod network;
 pub mod page;
 pub mod plugin;
 pub mod selectors;
@@ -49,6 +50,7 @@ pub use handles::{BoundingBox, ElementHandle};
 pub use input::{ClickOptions, Keyboard, Mouse, MouseButton};
 pub use launch::{BrowserChannel, ConnectOptions, LaunchOptions, connect, launch};
 pub use locator::{ElementState, Locator};
+pub use network::{ContinueOptions, FulfillOptions, Request, Route, RouteId};
 pub use page::{
     ConsoleMessage, Dialog, ImageFormat, NavigateOptions, Page, PdfOptions, Response,
     ScreenshotOptions, UrlMatcher, WaitUntil,

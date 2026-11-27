@@ -8,7 +8,7 @@ run real browser tests.
 | 0 | Workspace, CI, CDP codegen (`xtask`), protocol crate | Done |
 | 1 | Transport: sockets (WebSocket, pipe), CDP connection, sessions, capabilities, fake socket | Done (protocol log pending) |
 | 2 | Launcher, browser finder, Browser/Context/Page/Frame, handles, input, config | Done for Chromium (see gaps) |
-| 3 | Plugins, selectors, Locator + actionability, network, dialogs/downloads/file chooser | MVP done (see gaps) |
+| 3 | Plugins, selectors, Locator + actionability, network/routing/HAR, dialogs/downloads/file chooser | Done except downloads/file chooser |
 | 4 | `expect` assertions, `#[agito::test]` harness, samples | MVP done (see gaps) |
 | 5 | Firefox / WebDriver BiDi | Not started |
 | 6 | Accessibility, performance, coverage, tracing, video | Not started |
@@ -40,12 +40,13 @@ run real browser tests.
 | `motus.config.json`, `MOTUS_*` | `agito.config.json`, `AGITO_*` (launch, context, locator, assertions, failure subsets) |
 | `FailureCapture` (screenshot on failure) | `harness` (when `failure.screenshot` is set) |
 | Motus.Samples (todo page object, forms) | `samples/agito-samples` |
+| `NetworkManager`, `IRequest`, `IResponse` (+ body), request/response events | `network::{Request, Response}`, `page.on_request` / `on_response` / `on_request_finished` / `on_request_failed` |
+| `WaitForRequestAsync` / `WaitForResponseAsync`, network idle | `page.wait_for_request` / `wait_for_response` (eager), `page.wait_for_network_idle` |
+| `IRoute`, `RouteAsync` / `UnrouteAsync` on page and context | `network::Route` (`fulfill`, `continue_`, `abort`), `page.route` / `context.route`, `unroute(RouteId)`, `unroute_all` |
+| `HarRecorder`, `StartHarRecordingAsync` / `StopHarRecordingAsync` | `page.start_har` / `stop_har` / `stop_har_to` |
 
 ## Known gaps in the MVP
 
-- **Network:** no request interception (`route`), request/response events, HAR or
-  network-idle tracking beyond Chrome's `networkIdle` lifecycle event. `goto` does return the
-  main document's response.
 - **Not yet ported:**
   - From the page: downloads, file chooser, popups and target adoption, touch input, natural
     mouse motion, the cursor overlay.
@@ -83,6 +84,13 @@ run real browser tests.
   offset out-of-process frames, relying on box models for the rest.
 - `frame.wait_for_load_state` falls back to `document.readyState` for a frame whose lifecycle
   events were missed (an out-of-process iframe adopted after it loaded).
+
+- `wait_for_request` / `wait_for_response` subscribe when called rather than when awaited,
+  so the waiter can be created before the action that triggers the request.
+- Route patterns use agito's globs (`*` within a path segment, `**` across). Like Motus, a
+  pattern without `*` matches any URL containing it.
+- `unroute` takes the `RouteId` that `route` returned, not the pattern string.
+- Each page opens in its own window, so a page never becomes a hidden background tab.
 
 ## Inherited as-is
 

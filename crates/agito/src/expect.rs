@@ -537,13 +537,13 @@ impl ResponseAssertions {
         let not = if self.negate { "NOT " } else { "" };
         Err(ErrorKind::Assertion(AssertionFailure {
             expected: Some(format!("{not}{expected}")),
-            actual: Some(self.response.status.to_string()),
+            actual: Some(self.response.status().to_string()),
             selector: None,
-            page_url: Some(self.response.url.clone()),
+            page_url: Some(self.response.url().to_owned()),
             timeout: Duration::ZERO,
             message: format!(
                 "Assertion {not}{name} failed. Expected: {not}{expected}. Received: {} {}. URL: {}.",
-                self.response.status, self.response.status_text, self.response.url
+                self.response.status(), self.response.status_text(), self.response.url()
             ),
         })
         .into())
@@ -558,7 +558,7 @@ impl ResponseAssertions {
     pub fn to_have_status(&self, status: u16) -> Result<()> {
         self.check(
             "to_have_status",
-            self.response.status == status,
+            self.response.status() == status,
             &format!("status {status}"),
         )
     }
@@ -689,13 +689,7 @@ mod tests {
 
     #[test]
     fn response_assertions() {
-        let r = Response {
-            url: "u".into(),
-            status: 404,
-            status_text: "Not Found".into(),
-            headers: Default::default(),
-            mime_type: String::new(),
-        };
+        let r = Response::synthetic("u", 404, "Not Found", Default::default());
         assert!(expect(&r).to_be_ok().is_err());
         assert!(expect(&r).not().to_be_ok().is_ok());
         assert!(expect(&r).to_have_status(404).is_ok());

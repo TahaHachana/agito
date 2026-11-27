@@ -15,7 +15,7 @@ async fn main() -> agito::Result<()> {
     let page = browser.new_page(ContextOptions::default()).await?;
     let response = page.goto(&url).await?;
     if let Some(r) = &response {
-        println!("{} {} -> {:?}", r.status, r.url, page.title().await?);
+        println!("{} {} -> {:?}", r.status(), r.url(), page.title().await?);
     }
     let png = page
         .screenshot(ScreenshotOptions {

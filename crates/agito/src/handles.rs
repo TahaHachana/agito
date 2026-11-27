@@ -166,8 +166,13 @@ pub(crate) async fn array_to_handles(
     Ok(indexed.into_iter().map(|(_, h)| h).collect())
 }
 
-/// Decodes a by-value remote object into `T`; `undefined` and `null` decode as JSON `null`.
+/// Decodes a by-value remote object into `T`; `undefined` and `null` decode as JSON `null`,
+/// and decoding into `()` discards the value.
 pub(crate) fn decode_value<T: DeserializeOwned>(object: runtime::RemoteObject) -> Result<T> {
+    // `evaluate::<()>` means the caller does not want the result, whatever it is.
+    if std::any::type_name::<T>() == "()" {
+        return serde_json::from_value(Value::Null).map_err(|e| Error::other(e.to_string()));
+    }
     let value = match (object.value, object.unserializable_value) {
         (Some(v), _) => v,
         (None, Some(u)) => {
