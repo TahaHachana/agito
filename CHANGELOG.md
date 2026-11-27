@@ -18,6 +18,8 @@
   on a retry is reported as flaky), `--fail-on-flaky`, `--quarantine <file>`,
   `--flaky-history`, and JUnit and HTML reports. A crashed binary's unfinished tests are
   re-run alone to find the one that crashed.
+- `agito shard merge` combines the JUnit reports of a sharded run into one summary and report
+  (JUnit or HTML). `--expect N` fails the merge when a shard is missing or appears twice.
 - `#[agito::test(quarantine = "reason")]`: the test runs, but a failure is reported rather
   than failing it.
 - With `AGITO_RESULTS_DIR` set, each `#[agito::test]` writes a JSON record of its outcome

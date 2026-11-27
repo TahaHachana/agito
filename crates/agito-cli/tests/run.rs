@@ -216,3 +216,75 @@ fn agito_tests_report_durations_messages_and_quarantine() {
     assert!(loads.trim_end().ends_with("s)"), "a duration: {loads}");
     std::fs::remove_dir_all(state).unwrap();
 }
+
+/// The `Results:` line without its timing.
+fn results_line(stdout: &str) -> String {
+    let line = stdout
+        .lines()
+        .find(|l| l.starts_with("Results:"))
+        .unwrap_or_else(|| panic!("no results in: {stdout}"));
+    line.rsplit_once(" (")
+        .map_or(line, |(counts, _)| counts)
+        .to_owned()
+}
+
+#[test]
+fn merged_shards_add_up_to_the_whole_run() {
+    let state = scratch("merge");
+    let skip = ["--", "--skip", "flaky"];
+    let (_, whole) = run(&state, &skip);
+
+    let mut reports = Vec::new();
+    for index in 1..=2 {
+        let report = state.join(format!("shard-{index}.xml"));
+        let shard = format!("{index}/2");
+        let junit = format!("junit:{}", report.display());
+        run(
+            &state,
+            &[
+                "--shard",
+                &shard,
+                "--reporter",
+                &junit,
+                skip[0],
+                skip[1],
+                skip[2],
+            ],
+        );
+        reports.push(report);
+    }
+
+    let merged_report = state.join("all.xml");
+    let merge = |files: &[&PathBuf], extra: &[&str]| {
+        let output = Command::new(env!("CARGO_BIN_EXE_agito"))
+            .args(["shard", "merge"])
+            .args(files)
+            .args(extra)
+            .output()
+            .unwrap();
+        (
+            output.status.success(),
+            String::from_utf8_lossy(&output.stdout).into_owned(),
+            String::from_utf8_lossy(&output.stderr).into_owned(),
+        )
+    };
+    let all_files: Vec<&PathBuf> = reports.iter().collect();
+    let output = format!("junit:{}", merged_report.display());
+    let (passed, stdout, _) = merge(&all_files, &["--expect", "2", "--output", &output]);
+    assert!(!passed, "the fixture has real failures");
+    assert!(
+        stdout.contains("Merged 2 reports (shards 1/2, 2/2)"),
+        "{stdout}"
+    );
+    assert_eq!(results_line(&stdout), results_line(&whole));
+    let merged = std::fs::read_to_string(&merged_report).unwrap();
+    assert!(merged.contains(r#"<testcase name="tests::fails""#));
+    assert!(
+        !merged.contains("agito.shard.index"),
+        "the merged report is not a shard"
+    );
+
+    let (_, _, stderr) = merge(&all_files[..1], &["--expect", "2"]);
+    assert!(stderr.contains("shard 2 of 2 is missing"), "{stderr}");
+    std::fs::remove_dir_all(state).unwrap();
+}

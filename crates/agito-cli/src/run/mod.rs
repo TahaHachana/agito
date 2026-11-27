@@ -7,6 +7,7 @@
 mod console;
 mod discover;
 mod execute;
+pub mod merge;
 mod reports;
 mod select;
 

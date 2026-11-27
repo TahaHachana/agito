@@ -13,7 +13,7 @@ run real browser tests.
 | 4 | `expect` assertions, `#[agito::test]` harness, samples | MVP done (see gaps) |
 | 5 | Firefox / WebDriver BiDi | Not started |
 | 6 | Accessibility, performance, coverage, tracing, video | Not started |
-| 7 | CLI (`agito`) | In progress: `install`, `screenshot`, `pdf`, `update-protocol`, `run` done; `shard merge` left |
+| 7 | CLI (`agito`) | In progress: `install`, `screenshot`, `pdf`, `update-protocol`, `run`, `shard merge` done |
 | 8 | Recorder, codegen, check-selectors | Not started |
 | 9 | MCP server | Not started |
 | 10 | Visual runner | Not started |
@@ -49,6 +49,7 @@ run real browser tests.
 | `ILocator.SetInputFilesAsync`, `IFileChooser` | `locator.set_input_files` (paths or `FilePayload`s), `page.wait_for_file_chooser` / `on_file_chooser`, `FileChooser::set_files` |
 | `motus install` (`BrowserInstaller`) | `agito install` (crate `agito-cli`), writing the markers `launch::finder` reads |
 | `motus run` (`TestRunner`, `TestDiscovery`, `ShardSelector`, console, JUnit and HTML reporters, `FlakeHistoryReporter`), `[Quarantine]` | `agito run` (`crates/agito-cli/src/run`), `#[agito::test(quarantine = "reason")]`, `harness::TestRecord` |
+| `motus shard merge` (`ShardMerger`) | `agito shard merge` |
 | `motus update-protocol` (`ProtocolUpdater`, `ProtocolDiffer`) | `cargo xtask update-protocol` |
 | `motus screenshot`, `motus pdf`, `BannerRemoval` | `agito screenshot`, `agito pdf`, `js/banners.js` |
 | `IDownload`, `IPage.Download` | `Download` (`path`, `save_as`, `failure`, `cancel`, `delete`, `progress`), `page.wait_for_download` / `on_download` |
@@ -134,6 +135,10 @@ run real browser tests.
     and WebP. `--delay` takes fractions of a second.
   - pdf adds `--landscape` and `--background`.
   - They warn when the page answers with an HTTP error, and fail when it cannot load.
+- `agito shard merge` reads JUnit only (TRX is not ported) and can also write HTML. It
+  merges suites by binary across shards, reports a test found in two shards, and keeps the
+  worse of its results. An empty shard writes an empty suite carrying its shard number, so
+  `--expect` does not count it missing.
 - `update-protocol` is `cargo xtask update-protocol`, since it rewrites the bindings in this
   repository. It verifies the package's sha512 before using it. Its diff also lists types, and
   commands, events and types whose definition changed, not only added and removed commands

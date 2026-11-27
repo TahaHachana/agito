@@ -92,7 +92,7 @@ crates/
   agito/            the engine: transport, launch, browser/context/page/frame, locator,
                     selectors, input, network, files, plugins, expect, config, harness
   agito-macros/     #[agito::test], #[agito::plugin]
-  agito-cli/        the `agito` binary: install, screenshot, pdf, run
+  agito-cli/        the `agito` binary: install, screenshot, pdf, run, shard merge
 samples/
   agito-samples/    page objects and tests ported from Motus.Samples
 xtask/              cargo xtask codegen [--check], cargo xtask update-protocol
@@ -115,7 +115,7 @@ planned. That way the attribute can be used as `#[agito::test]`.
 | 4 | `expect`, `#[agito::test]`, samples | Done; smaller gaps remain |
 | 5 | Firefox over WebDriver BiDi | Next major engine phase |
 | 6 | Accessibility, performance, coverage, tracing, video | Not started |
-| 7 | CLI | In progress: `install`, `screenshot`, `pdf`, `update-protocol`, `run` done; `shard merge` left |
+| 7 | CLI | In progress: `install`, `screenshot`, `pdf`, `update-protocol`, `run`, `shard merge` done |
 | 8 | Recorder, codegen, check-selectors | Not started |
 | 9 | MCP server | Not started |
 | 10 | Visual runner | Not started |
@@ -188,7 +188,10 @@ and downloads are unreleased.
     `--flaky-history`, and console, JUnit and HTML reports.
   - Left: Cobertura and coverage, accessibility and performance modes (all phase 6), and
     `run` settings in `agito.config.json`.
-- **`shard merge`.**
+- **`shard merge`:** done. It merges the shards' JUnit reports by test, checks with
+  `--expect N` that shards 1 to N are each there once, and writes JUnit or HTML. The JUnit
+  report keeps what a merge reads back as properties (shard, quarantine, attempts), and an
+  empty shard writes an empty suite so its shard is on record.
 - Motus's TRX reporter is not ported, since TRX is a .NET format.
 
 ### Phase 8: recorder and codegen

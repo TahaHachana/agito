@@ -33,6 +33,17 @@ enum Command {
     Pdf(capture::PdfArgs),
     /// Build and run the tests, with sharding, retries, quarantine and reports.
     Run(run::RunArgs),
+    /// Work with the reports of a sharded run.
+    Shard {
+        #[command(subcommand)]
+        command: ShardCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum ShardCommand {
+    /// Merge the shards' JUnit reports into one, checking that every shard is there.
+    Merge(run::merge::MergeArgs),
 }
 
 #[derive(Args)]
@@ -60,6 +71,13 @@ async fn main() -> ExitCode {
         Command::Install(args) => run_install(args).await,
         Command::Screenshot(args) => capture::screenshot(args).await,
         Command::Pdf(args) => capture::pdf(args).await,
+        Command::Shard {
+            command: ShardCommand::Merge(args),
+        } => match run::merge::merge(args) {
+            Ok(true) => Ok(()),
+            Ok(false) => return ExitCode::FAILURE,
+            Err(e) => Err(e),
+        },
         Command::Run(args) => {
             // The run is blocking work: building, then running binaries one after another.
             match tokio::task::spawn_blocking(move || run::run(args)).await {

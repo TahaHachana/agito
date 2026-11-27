@@ -77,6 +77,15 @@ fn write_file(path: &Path, text: &str) -> Result<()> {
     std::fs::write(path, text).with_context(|| format!("could not write {}", path.display()))
 }
 
+/// Escaped for an attribute value. Parsers turn a raw newline or tab in an attribute into a
+/// space, so they are written as character references, which survive.
+fn xml_attr(text: &str) -> String {
+    xml(text)
+        .replace('\n', "&#10;")
+        .replace('\r', "&#13;")
+        .replace('\t', "&#9;")
+}
+
 fn xml(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
@@ -100,11 +109,18 @@ fn secs(d: Option<Duration>) -> String {
 
 /// One `<testsuite>` per binary. A quarantined failure is not a `<failure>`: it is noted in
 /// `<system-out>`, so CI shows it without failing. A flaky pass carries `<flakyFailure>`, the
-/// Surefire convention. The shard is recorded as properties, for merging shards later.
+/// Surefire convention.
+///
+/// What `agito shard merge` needs to read back is also kept as properties: the shard on each
+/// suite, and a test's quarantine, outcome and attempts on the test. A shard that ran nothing
+/// still writes an empty suite, so its shard is on record.
 pub fn junit(run: &Run) -> String {
     let mut suites: BTreeMap<&str, Vec<&Outcome>> = BTreeMap::new();
     for o in run.outcomes {
         suites.entry(o.binary.as_str()).or_default().push(o);
+    }
+    if suites.is_empty() && run.shard.is_some() {
+        suites.insert(EMPTY_SHARD_SUITE, Vec::new());
     }
     let mut out = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     let s = &run.summary;
@@ -131,7 +147,7 @@ pub fn junit(run: &Run) -> String {
         if let Some(shard) = run.shard {
             let _ = writeln!(
                 out,
-                "    <properties>\n      <property name=\"agito.shard.index\" value=\"{}\"/>\n      <property name=\"agito.shard.total\" value=\"{}\"/>\n    </properties>",
+                "    <properties>\n      <property name=\"{SHARD_INDEX}\" value=\"{}\"/>\n      <property name=\"{SHARD_TOTAL}\" value=\"{}\"/>\n    </properties>",
                 shard.index, shard.total
             );
         }
@@ -145,6 +161,33 @@ pub fn junit(run: &Run) -> String {
             );
             let mut body = String::new();
             let message = o.message.as_deref().unwrap_or("failed");
+            let mut properties: Vec<(&str, String)> = Vec::new();
+            if let Some(reason) = &o.quarantine {
+                properties.push((QUARANTINE, reason.clone()));
+                let outcome = if o.status == Status::Failed {
+                    "failed"
+                } else {
+                    "passed"
+                };
+                properties.push((OUTCOME, outcome.into()));
+                if o.status == Status::Failed {
+                    properties.push((MESSAGE, message.into()));
+                }
+            }
+            if o.attempts > 1 {
+                properties.push((ATTEMPTS, o.attempts.to_string()));
+            }
+            if !properties.is_empty() {
+                body.push_str("      <properties>\n");
+                for (name, value) in properties {
+                    let _ = writeln!(
+                        body,
+                        "        <property name=\"{name}\" value=\"{}\"/>",
+                        xml_attr(&value)
+                    );
+                }
+                body.push_str("      </properties>\n");
+            }
             match (o.status, &o.quarantine) {
                 (Status::Skipped, _) => body.push_str("      <skipped/>\n"),
                 (status, Some(reason)) => {
@@ -163,7 +206,7 @@ pub fn junit(run: &Run) -> String {
                     let _ = writeln!(
                         body,
                         "      <failure message=\"{}\">{}</failure>",
-                        xml(message),
+                        xml_attr(message),
                         xml(o.output.as_deref().unwrap_or(message))
                     );
                 }
@@ -195,6 +238,16 @@ pub fn junit(run: &Run) -> String {
     out.push_str("</testsuites>\n");
     out
 }
+
+/// The suite an empty shard writes to record its shard.
+pub const EMPTY_SHARD_SUITE: &str = "agito";
+pub const SHARD_INDEX: &str = "agito.shard.index";
+pub const SHARD_TOTAL: &str = "agito.shard.total";
+pub const QUARANTINE: &str = "agito.quarantine";
+/// How a quarantined test went, since its `<testcase>` shows no `<failure>`.
+pub const OUTCOME: &str = "agito.outcome";
+pub const MESSAGE: &str = "agito.message";
+pub const ATTEMPTS: &str = "agito.attempts";
 
 /// A self-contained page: the counts, then every test, failures first, with their output and
 /// screenshot inline.

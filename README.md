@@ -46,6 +46,7 @@ agito run -p my-app --features e2e -- checkout   # cargo arguments, then test fi
 agito run --shard 2/4 --reporter junit:results/shard-2.xml --reporter html:results/report.html
 agito run --retries 2 --fail-on-flaky --flaky-history target/flaky.json
 agito run --quarantine quarantine.txt            # full names, such as my-app::checkout::pays
+agito shard merge results/shard-*.xml --expect 4 --output junit:results/all.xml
 ```
 
 It builds the tests with cargo, then runs each test binary itself, so a failed test can be
@@ -189,7 +190,7 @@ Variables: `AGITO_HEADLESS`, `AGITO_CHANNEL`, `AGITO_SLOWMO`, `AGITO_LAUNCH_TIME
 | Crate | What it holds |
 |---|---|
 | `crates/agito` | The engine: launcher, transport, browser/context/page, locators, input, selectors, plugins, `expect`, test harness |
-| `crates/agito-cli` | The `agito` command-line tool: `install`, `screenshot`, `pdf`, `run` |
+| `crates/agito-cli` | The `agito` command-line tool: `install`, `screenshot`, `pdf`, `run`, `shard merge` |
 | `crates/agito-macros` | `#[agito::test]` and `#[agito::plugin]` |
 | `crates/agito-protocol` | CDP bindings generated from the vendored protocol JSON |
 | `samples/agito-samples` | Example page object and tests, ported from Motus.Samples |
