@@ -13,7 +13,7 @@ run real browser tests.
 | 4 | `expect` assertions, `#[agito::test]` harness, samples | MVP done (see gaps) |
 | 5 | Firefox / WebDriver BiDi | Not started |
 | 6 | Accessibility, performance, coverage, tracing, video | Not started |
-| 7 | CLI (`agito`) | In progress: `install`, `screenshot`, `pdf`, `update-protocol` done |
+| 7 | CLI (`agito`) | In progress: `install`, `screenshot`, `pdf`, `update-protocol`, `run` done; `shard merge` left |
 | 8 | Recorder, codegen, check-selectors | Not started |
 | 9 | MCP server | Not started |
 | 10 | Visual runner | Not started |
@@ -48,6 +48,7 @@ run real browser tests.
 | `IPage.Popup`, `IBrowserContext.Page`, target discovery and adoption | `page.on_popup` / `wait_for_popup` / `opener`, `context.on_page` / `wait_for_page` |
 | `ILocator.SetInputFilesAsync`, `IFileChooser` | `locator.set_input_files` (paths or `FilePayload`s), `page.wait_for_file_chooser` / `on_file_chooser`, `FileChooser::set_files` |
 | `motus install` (`BrowserInstaller`) | `agito install` (crate `agito-cli`), writing the markers `launch::finder` reads |
+| `motus run` (`TestRunner`, `TestDiscovery`, `ShardSelector`, console, JUnit and HTML reporters, `FlakeHistoryReporter`), `[Quarantine]` | `agito run` (`crates/agito-cli/src/run`), `#[agito::test(quarantine = "reason")]`, `harness::TestRecord` |
 | `motus update-protocol` (`ProtocolUpdater`, `ProtocolDiffer`) | `cargo xtask update-protocol` |
 | `motus screenshot`, `motus pdf`, `BannerRemoval` | `agito screenshot`, `agito pdf`, `js/banners.js` |
 | `IDownload`, `IPage.Download` | `Download` (`path`, `save_as`, `failure`, `cancel`, `delete`, `progress`), `page.wait_for_download` / `on_download` |
@@ -58,6 +59,7 @@ run real browser tests.
   - From the page: touch input, natural mouse motion, the cursor overlay. Adopting tabs that were already open when connecting is not ported either.
   - Exposed bindings, storage state, permissions, geolocation, HTTP credentials.
   - Browser pool, heartbeat, and signal handlers.
+  - Harness options `launch = fn`, `perf_budget(...)` and failure tracing.
 - **Platforms:** Windows launches over a WebSocket port. The shared test browser is killed at
   process exit only on Unix, where it is tied to the pipe.
 - **Assertions:** `has`/`has_not` locator filters and the accessibility-name/role
@@ -137,6 +139,19 @@ run real browser tests.
   commands, events and types whose definition changed, not only added and removed commands
   and events. It records the vendored version in `protocol/VERSION`, regenerates the bindings
   and runs `cargo check`. Motus only wrote the JSON, to the current directory by default.
+- `agito run`:
+  - It builds with cargo and runs the test binaries itself, so it reports plain `#[test]`s
+    as well as `#[agito::test]`s, but not doctests.
+  - Test names are `binary::test`, such as `agito::popups::closes`, for filters, quarantine
+    lists and flaky history. Filters go after `--` and match substrings, as libtest's do.
+  - `--retries` re-runs any failure, and a pass on a retry is flaky: Motus's `flake` policy.
+    Its default `transient` policy, re-running only lost browsers, is what the harness
+    already does inside every test, so there is no `--retry-policy`.
+  - The console report is always shown; `--reporter` adds JUnit or HTML files. JUnit has a
+    `<testsuite>` per binary, and the shard in `agito.shard.*` properties.
+  - A crashed binary's unreported tests are re-run alone to find the one that crashed.
+  - Under plain `cargo test`, a quarantined `#[agito::test]` that fails prints a warning and
+    passes.
 - `--hide-banners` removes known consent managers by id, and anything else named for
   cookies, consent, GDPR or privacy only through its outermost fixed or sticky container.
   Motus removed every element whose class or id held one of those words (or `cc-`), which

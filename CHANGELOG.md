@@ -13,6 +13,15 @@
   `--hide-banners`. Screenshots pick PNG, JPEG or WebP from the output's extension and take
   `--full-page`, `--width`, `--height` and `--quality`. PDFs take `--width`, `--landscape` and
   `--background`.
+- `agito run` builds the tests with cargo and runs each test binary itself. It reports plain
+  `#[test]`s and `#[agito::test]`s alike, with `--shard`, `--workers`, `--retries` (a pass
+  on a retry is reported as flaky), `--fail-on-flaky`, `--quarantine <file>`,
+  `--flaky-history`, and JUnit and HTML reports. A crashed binary's unfinished tests are
+  re-run alone to find the one that crashed.
+- `#[agito::test(quarantine = "reason")]`: the test runs, but a failure is reported rather
+  than failing it.
+- With `AGITO_RESULTS_DIR` set, each `#[agito::test]` writes a JSON record of its outcome
+  (`agito::harness::TestRecord`): duration, attempts, message, screenshot and quarantine.
 - `cargo xtask update-protocol [--version <npm version>] [--dry-run]` vendors a
   `devtools-protocol` release, shows what changed, regenerates the bindings and checks that
   the workspace builds. `crates/agito-protocol/protocol/VERSION` records the vendored release

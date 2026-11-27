@@ -92,7 +92,7 @@ crates/
   agito/            the engine: transport, launch, browser/context/page/frame, locator,
                     selectors, input, network, files, plugins, expect, config, harness
   agito-macros/     #[agito::test], #[agito::plugin]
-  agito-cli/        the `agito` binary: install, screenshot, pdf
+  agito-cli/        the `agito` binary: install, screenshot, pdf, run
 samples/
   agito-samples/    page objects and tests ported from Motus.Samples
 xtask/              cargo xtask codegen [--check], cargo xtask update-protocol
@@ -115,7 +115,7 @@ planned. That way the attribute can be used as `#[agito::test]`.
 | 4 | `expect`, `#[agito::test]`, samples | Done; smaller gaps remain |
 | 5 | Firefox over WebDriver BiDi | Next major engine phase |
 | 6 | Accessibility, performance, coverage, tracing, video | Not started |
-| 7 | CLI | In progress: `install`, `screenshot`, `pdf`, `update-protocol` done |
+| 7 | CLI | In progress: `install`, `screenshot`, `pdf`, `update-protocol`, `run` done; `shard merge` left |
 | 8 | Recorder, codegen, check-selectors | Not started |
 | 9 | MCP server | Not started |
 | 10 | Visual runner | Not started |
@@ -134,8 +134,7 @@ and downloads are unreleased.
 - **Browser management:** a browser pool, a heartbeat that notices frozen browsers, and
   signal handlers.
 - **Connecting:** taking over tabs already open in a browser agito connects to.
-- **Harness options:** `launch = fn`, `perf_budget(...)`, `quarantine = "reason"`, and
-  failure tracing.
+- **Harness options:** `launch = fn`, `perf_budget(...)` and failure tracing.
 - **Windows:** killing the shared test browser at process exit.
 
 ### Phase 5: Firefox / WebDriver BiDi
@@ -173,12 +172,22 @@ and downloads are unreleased.
   `devtools-protocol` release from npm, checks its sha512, shows what changed per domain
   (commands, events and types added, removed or redefined), regenerates the bindings and runs
   `cargo check`. `--dry-run` only shows the differences.
-- **`run [cargo test args]`:**
-  - Runs `cargo test` (or nextest) with environment variables the harness honors: results
-    directory, sharding by stable hash, retries, quarantine, accessibility and performance
-    modes.
-  - Aggregates per-test JSON results into console, JUnit, HTML and Cobertura reports.
-  - Tracks flaky history, with `--fail-on-flaky`.
+- **`run`:** first increment done.
+  - It builds with `cargo test --no-run --message-format json`, then runs the test binaries
+    itself, as cargo-nextest does, rather than running `cargo test`. That ties each result
+    to its binary, lets a failed test be re-run alone, and makes a shard an exact list of
+    tests. Binaries run with cargo's working directory, `CARGO_MANIFEST_DIR` and library
+    path. Doctests are not run, as in nextest.
+  - Results come from libtest's output, for every test. `#[agito::test]`s also write a JSON
+    record when `AGITO_RESULTS_DIR` is set, which adds durations, messages, the failure
+    screenshot and quarantine.
+  - When a binary dies, the tests it left unreported are re-run one at a time, so the crash
+    is pinned on the test that caused it.
+  - Done: filters, `--shard`, `--workers`, `--retries` (a pass on a retry is flaky),
+    `--quarantine <file>` and `#[agito::test(quarantine = "reason")]`, `--fail-on-flaky`,
+    `--flaky-history`, and console, JUnit and HTML reports.
+  - Left: Cobertura and coverage, accessibility and performance modes (all phase 6), and
+    `run` settings in `agito.config.json`.
 - **`shard merge`.**
 - Motus's TRX reporter is not ported, since TRX is a .NET format.
 

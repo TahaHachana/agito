@@ -22,6 +22,10 @@ use crate::error::{Error, Result};
 use crate::launch::{LaunchOptions, launch};
 use crate::page::{Page, ScreenshotOptions};
 
+pub mod report;
+
+pub use report::TestRecord;
+
 static RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -105,6 +109,8 @@ pub struct TestOptions {
     /// Re-runs after a lost browser.
     pub retries: u32,
     pub context: fn() -> ContextOptions,
+    /// Why the test is quarantined: it still runs, but a failure is reported, not raised.
+    pub quarantine: Option<&'static str>,
 }
 
 impl Default for TestOptions {
@@ -112,6 +118,7 @@ impl Default for TestOptions {
         Self {
             retries: 1,
             context: ContextOptions::default,
+            quarantine: None,
         }
     }
 }
@@ -154,65 +161,125 @@ impl<E: Debug + 'static> TestOutcome for std::result::Result<(), E> {
 }
 
 /// Runs one test: sets up fixtures, runs the body, tears down, and retries on browser loss.
-/// Panics (failing the test) when the body fails.
+/// Panics (failing the test) when the body fails, unless the test is quarantined.
 pub fn run<F, Fut, R>(name: &str, options: TestOptions, body: F)
 where
     F: Fn(Fixtures) -> Fut,
     Fut: Future<Output = R>,
     R: TestOutcome,
 {
+    let started = Instant::now();
     let attempts = options.retries + 1;
-    for attempt in 1..=attempts {
+    let mut attempt = 0;
+    let (result, screenshot) = loop {
+        attempt += 1;
         let last_attempt = attempt == attempts;
-        let result = RUNTIME.block_on(async {
-            let _slot = CONTEXT_SLOTS
-                .acquire()
-                .await
-                .expect("semaphore is never closed");
-            let fixtures = match setup(&options).await {
-                Ok(f) => f,
-                Err(e) => return Attempt::SetupFailed(e),
-            };
-            let outcome = AssertUnwindSafe(body(fixtures.clone()))
-                .catch_unwind()
-                .await;
-            let failed = !matches!(&outcome, Ok(r) if r.outcome().is_ok());
-            if failed {
-                capture_failure(name, &fixtures.page).await;
-            }
-            let _ = fixtures.context.close().await;
-            match outcome {
-                Ok(r) => match r.outcome() {
-                    Ok(()) => Attempt::Passed,
-                    Err(message) => Attempt::Failed {
-                        message,
-                        browser_lost: r.browser_lost(),
-                    },
-                },
-                Err(panic) => Attempt::Panicked(panic),
-            }
-        });
-        match result {
-            Attempt::Passed => return,
-            Attempt::SetupFailed(e) if e.is_browser_lost() && !last_attempt => {
-                eprintln!(
-                    "[RETRY] {name}: browser lost during setup ({e}); attempt {} of {attempts}",
-                    attempt + 1
-                );
-            }
-            Attempt::SetupFailed(e) => panic!("{name}: could not set up the browser: {e}"),
+        let (result, screenshot) = RUNTIME.block_on(run_attempt(name, &options, &body));
+        let retry = match &result {
+            Attempt::SetupFailed(e) => e
+                .is_browser_lost()
+                .then(|| format!("browser lost during setup ({e})")),
             Attempt::Failed {
                 message,
                 browser_lost: true,
-            } if !last_attempt => {
-                eprintln!(
-                    "[RETRY] {name}: browser lost ({message}); attempt {} of {attempts}",
-                    attempt + 1
-                );
-            }
-            Attempt::Failed { message, .. } => panic!("{message}"),
-            Attempt::Panicked(panic) => std::panic::resume_unwind(panic),
+            } => Some(format!("browser lost ({message})")),
+            _ => None,
+        };
+        match retry {
+            Some(why) if !last_attempt => eprintln!(
+                "[RETRY] {name}: {why}; attempt {} of {attempts}",
+                attempt + 1
+            ),
+            _ => break (result, screenshot),
         }
+    };
+
+    let (message, browser_lost) = match &result {
+        Attempt::Passed => (None, false),
+        Attempt::SetupFailed(e) => (
+            Some(format!("{name}: could not set up the browser: {e}")),
+            e.is_browser_lost(),
+        ),
+        Attempt::Failed {
+            message,
+            browser_lost,
+        } => (Some(message.clone()), *browser_lost),
+        Attempt::Panicked(panic) => (Some(panic_message(panic.as_ref())), false),
+    };
+    report::write(&TestRecord {
+        name: name.to_owned(),
+        passed: message.is_none(),
+        duration_ms: started.elapsed().as_secs_f64() * 1000.0,
+        attempts: attempt,
+        message: message.clone(),
+        browser_lost,
+        quarantine: options.quarantine.map(str::to_owned),
+        screenshot,
+    });
+
+    let Some(message) = message else {
+        return;
+    };
+    if let Some(reason) = options.quarantine {
+        eprintln!("[QUARANTINED] {name} failed, which does not fail the run ({reason}): {message}");
+        return;
+    }
+    match result {
+        Attempt::Panicked(panic) => std::panic::resume_unwind(panic),
+        _ => panic!("{message}"),
+    }
+}
+
+/// One attempt: fixtures, body, teardown. Also returns the failure screenshot, if one was saved.
+async fn run_attempt<F, Fut, R>(
+    name: &str,
+    options: &TestOptions,
+    body: &F,
+) -> (Attempt, Option<std::path::PathBuf>)
+where
+    F: Fn(Fixtures) -> Fut,
+    Fut: Future<Output = R>,
+    R: TestOutcome,
+{
+    let _slot = CONTEXT_SLOTS
+        .acquire()
+        .await
+        .expect("semaphore is never closed");
+    let fixtures = match setup(options).await {
+        Ok(f) => f,
+        Err(e) => return (Attempt::SetupFailed(e), None),
+    };
+    let outcome = AssertUnwindSafe(body(fixtures.clone()))
+        .catch_unwind()
+        .await;
+    let failed = !matches!(&outcome, Ok(r) if r.outcome().is_ok());
+    let screenshot = if failed {
+        capture_failure(name, &fixtures.page).await
+    } else {
+        None
+    };
+    let _ = fixtures.context.close().await;
+    let attempt = match outcome {
+        Ok(r) => match r.outcome() {
+            Ok(()) => Attempt::Passed,
+            Err(message) => Attempt::Failed {
+                message,
+                browser_lost: r.browser_lost(),
+            },
+        },
+        Err(panic) => Attempt::Panicked(panic),
+    };
+    (attempt, screenshot)
+}
+
+/// The text of a panic payload, as the default hook prints it.
+fn panic_message(payload: &(dyn Any + Send)) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_owned()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "the test panicked".to_owned()
     }
 }
 
@@ -240,23 +307,24 @@ async fn setup(options: &TestOptions) -> Result<Fixtures> {
     })
 }
 
-/// Saves a screenshot of a failed test's page when `failure.screenshot` is configured.
-async fn capture_failure(name: &str, page: &Page) {
+/// Saves a screenshot of a failed test's page when `failure.screenshot` is configured, and
+/// returns where.
+async fn capture_failure(name: &str, page: &Page) -> Option<std::path::PathBuf> {
     let failure = &config::get().failure;
     if failure.screenshot != Some(true) || page.is_closed() {
-        return;
+        return None;
     }
     let dir = failure
         .screenshot_path
         .clone()
         .unwrap_or_else(|| "target/agito-failures".into());
-    let Ok(png) = page.screenshot(ScreenshotOptions::default()).await else {
-        return;
-    };
+    let png = page.screenshot(ScreenshotOptions::default()).await.ok()?;
     let file = std::path::Path::new(&dir).join(format!("{}.png", artifact_name(name)));
     if std::fs::create_dir_all(&dir).is_ok() && std::fs::write(&file, png).is_ok() {
         eprintln!("agito: failure screenshot saved to {}", file.display());
+        return Some(std::path::absolute(&file).unwrap_or(file));
     }
+    None
 }
 
 /// A file-name-safe version of a test name.

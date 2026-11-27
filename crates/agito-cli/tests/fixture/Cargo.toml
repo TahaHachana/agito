@@ -1,0 +1,15 @@
+# A suite that misbehaves on purpose, for testing `agito run`. Its own workspace, so the
+# agito workspace's `cargo test` does not run its failures.
+[package]
+name = "run-fixture"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[features]
+browser = ["dep:agito"]
+
+[dependencies]
+agito = { path = "../../../agito", optional = true }
