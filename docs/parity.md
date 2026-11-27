@@ -11,9 +11,9 @@ run real browser tests.
 | 2 | Launcher, browser finder, Browser/Context/Page/Frame, handles, input, config | Done for Chromium (see gaps) |
 | 3 | Plugins, selectors, Locator + actionability, network/routing/HAR, dialogs/downloads/file chooser | Done |
 | 4 | `expect` assertions, `#[agito::test]` harness, samples | MVP done (see gaps) |
-| 5 | Firefox / WebDriver BiDi | Not started |
+| 5 | Firefox / WebDriver BiDi | Deferred until there is demand ([why](roadmap.md#phase-5-firefox--webdriver-bidi-deferred)) |
 | 6 | Accessibility, performance, coverage, tracing, video | Not started |
-| 7 | CLI (`agito`) | In progress: `install`, `screenshot`, `pdf`, `update-protocol`, `run`, `shard merge` done |
+| 7 | CLI (`agito`) | Done; `run` settings in `agito.config.json` left |
 | 8 | Recorder, codegen, check-selectors | Not started |
 | 9 | MCP server | Not started |
 | 10 | Visual runner | Not started |
