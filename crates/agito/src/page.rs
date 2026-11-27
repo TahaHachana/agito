@@ -219,6 +219,7 @@ type BoxFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
 type DialogHandler = Arc<dyn Fn(Dialog) -> BoxFuture + Send + Sync>;
 type ConsoleHandler = Arc<dyn Fn(&ConsoleMessage) + Send + Sync>;
 type ErrorHandler = Arc<dyn Fn(&str) + Send + Sync>;
+type PageHandler = Arc<dyn Fn(&Page) + Send + Sync>;
 type RequestHandler = Arc<dyn Fn(&Request) + Send + Sync>;
 type ResponseHandler = Arc<dyn Fn(&Response) + Send + Sync>;
 
@@ -249,6 +250,8 @@ pub(crate) enum PageEvent {
     FrameDetached {
         frame_id: String,
     },
+    /// This page opened another one.
+    Popup(Page),
     Closed,
 }
 
@@ -351,6 +354,8 @@ pub(crate) struct PageInner {
     error_handlers: Mutex<Vec<ErrorHandler>>,
     dialog_handlers: Mutex<Vec<DialogHandler>>,
     network_handlers: Mutex<NetworkHandlers>,
+    popup_handlers: Mutex<Vec<PageHandler>>,
+    opener: Option<Weak<PageInner>>,
     pub(crate) network: Mutex<NetworkState>,
     pub(crate) network_events: broadcast::Sender<NetworkEvent>,
     mouse: Mouse,
@@ -375,6 +380,15 @@ impl PageInner {
 
     pub(crate) fn is_closed(&self) -> bool {
         self.closed.load(Ordering::SeqCst)
+    }
+
+    /// Tells handlers and waiters that this page opened `popup`.
+    pub(crate) fn notify_popup(&self, popup: &Page) {
+        let handlers = self.popup_handlers.lock().unwrap().clone();
+        for handler in handlers {
+            handler(popup);
+        }
+        let _ = self.events.send(PageEvent::Popup(popup.clone()));
     }
 
     /// Calls network handlers and wakes waiters, outside any lock.
@@ -443,10 +457,15 @@ impl Page {
         Self { inner }
     }
 
+    /// Sets up a page target the browser attached. `initial_url` is the URL the target was
+    /// opened for (`about:blank` for `new_page`); `paused` says it waits to be resumed.
     pub(crate) async fn initialize(
         context: BrowserContext,
         session: Arc<dyn Session>,
         target_id: String,
+        opener: Option<&Page>,
+        initial_url: &str,
+        paused: bool,
     ) -> Result<Page> {
         let (events, _) = broadcast::channel(1024);
         let inner = Arc::new(PageInner {
@@ -459,6 +478,8 @@ impl Page {
             error_handlers: Mutex::new(Vec::new()),
             dialog_handlers: Mutex::new(Vec::new()),
             network_handlers: Mutex::new(NetworkHandlers::default()),
+            popup_handlers: Mutex::new(Vec::new()),
+            opener: opener.map(|o| Arc::downgrade(&o.inner)),
             network: Mutex::new(NetworkState::default()),
             network_events: broadcast::channel(4096).0,
             mouse: Mouse::new(session.clone()),
@@ -468,67 +489,24 @@ impl Page {
         });
         let page = Page { inner };
         page.start_pump(session.clone(), None);
-        enable_session(&session).await?;
 
+        // Everything the page needs before it runs goes out as one ordered batch, the resume
+        // last. Chrome applies a session's commands in order, but a tab opened without an
+        // opener has no renderer until it resumes, so waiting on each answer would deadlock.
         let options = page.inner.context.options().clone();
-        if let Some(viewport) = options.viewport {
-            page.set_viewport(viewport).await?;
-        }
-        if options.user_agent.is_some() || options.locale.is_some() {
-            let user_agent = match &options.user_agent {
-                Some(ua) => ua.clone(),
-                None => {
-                    let version = session
-                        .send(&agito_protocol::cdp::browser::GetVersionParams::default())
-                        .await?;
-                    version.user_agent
-                }
-            };
-            session
-                .send(&emulation::SetUserAgentOverrideParams {
-                    user_agent,
-                    accept_language: options.locale.clone(),
-                    ..Default::default()
-                })
-                .await?;
-        }
-        if let Some(locale) = &options.locale {
-            session
-                .send(&emulation::SetLocaleOverrideParams {
-                    locale: Some(locale.clone()),
-                })
-                .await?;
-        }
-        if let Some(tz) = &options.timezone_id {
-            session
-                .send(&emulation::SetTimezoneOverrideParams {
-                    timezone_id: tz.clone(),
-                })
-                .await?;
-        }
-        if let Some(scheme) = options.color_scheme_css() {
-            session
-                .send(&emulation::SetEmulatedMediaParams {
-                    media: None,
-                    features: Some(vec![emulation::MediaFeature {
-                        name: "prefers-color-scheme".into(),
-                        value: scheme.into(),
-                    }]),
-                })
-                .await?;
-        }
-        if options.ignore_https_errors {
-            session
-                .send(&security::SetIgnoreCertificateErrorsParams { ignore: true })
-                .await?;
-        }
-        if !options.extra_http_headers.is_empty() {
-            session
-                .send(&network::SetExtraHTTPHeadersParams {
-                    headers: serde_json::to_value(&options.extra_http_headers).unwrap(),
-                })
-                .await?;
-        }
+        let user_agent = match (&options.user_agent, &options.locale) {
+            (Some(ua), _) => Some(ua.clone()),
+            (None, Some(_)) => Some(
+                page.inner
+                    .context
+                    .browser()
+                    .browser_session()
+                    .send(&agito_protocol::cdp::browser::GetVersionParams::default())
+                    .await?
+                    .user_agent,
+            ),
+            (None, None) => None,
+        };
         let scripts = page
             .inner
             .context
@@ -537,9 +515,88 @@ impl Page {
             .lock()
             .unwrap()
             .clone();
-        for script in scripts {
-            page.add_init_script(script).await?;
+        let s = &session;
+        let mut batch: Vec<SetupStep<'_>> = vec![
+            step(s, cdp_page::EnableParams::default()),
+            step(
+                s,
+                cdp_page::SetLifecycleEventsEnabledParams { enabled: true },
+            ),
+            step(s, runtime::EnableParams::default()),
+            step(s, network::EnableParams::default()),
+        ];
+        if let Some(viewport) = options.viewport {
+            batch.push(step(s, viewport_params(viewport)));
         }
+        if let Some(user_agent) = user_agent {
+            batch.push(step(
+                s,
+                emulation::SetUserAgentOverrideParams {
+                    user_agent,
+                    accept_language: options.locale.clone(),
+                    ..Default::default()
+                },
+            ));
+        }
+        if let Some(locale) = &options.locale {
+            batch.push(step(
+                s,
+                emulation::SetLocaleOverrideParams {
+                    locale: Some(locale.clone()),
+                },
+            ));
+        }
+        if let Some(tz) = &options.timezone_id {
+            batch.push(step(
+                s,
+                emulation::SetTimezoneOverrideParams {
+                    timezone_id: tz.clone(),
+                },
+            ));
+        }
+        if let Some(scheme) = options.color_scheme_css() {
+            batch.push(step(
+                s,
+                emulation::SetEmulatedMediaParams {
+                    media: None,
+                    features: Some(vec![emulation::MediaFeature {
+                        name: "prefers-color-scheme".into(),
+                        value: scheme.into(),
+                    }]),
+                },
+            ));
+        }
+        if options.ignore_https_errors {
+            batch.push(step(
+                s,
+                security::SetIgnoreCertificateErrorsParams { ignore: true },
+            ));
+        }
+        if !options.extra_http_headers.is_empty() {
+            batch.push(step(
+                s,
+                network::SetExtraHTTPHeadersParams {
+                    headers: serde_json::to_value(&options.extra_http_headers).unwrap(),
+                },
+            ));
+        }
+        for script in scripts {
+            batch.push(step(
+                s,
+                cdp_page::AddScriptToEvaluateOnNewDocumentParams {
+                    source: script,
+                    ..Default::default()
+                },
+            ));
+        }
+        // Routes registered on the context before this page existed apply to it too.
+        batch.push(Box::pin(page.sync_fetch_on(s)));
+        // Out-of-process iframes attach as targets; flatten them onto this connection.
+        batch.push(step(s, auto_attach_params()));
+        if paused {
+            batch.push(step(s, runtime::RunIfWaitingForDebuggerParams {}));
+        }
+        futures::future::try_join_all(batch).await?;
 
         let tree = session
             .send(&cdp_page::GetFrameTreeParams::default())
@@ -548,18 +605,15 @@ impl Page {
             let mut state = page.inner.state.lock().unwrap();
             state.main_frame_id = tree.frame_tree.frame.id.clone();
             record_tree(&mut state, &tree.frame_tree, None);
-            // A new tab's initial about:blank finished loading before lifecycle events were on.
+            // A blank new tab's document loaded before lifecycle events were on. A popup is
+            // still about to navigate, so its blank document does not count.
             let loader = tree.frame_tree.frame.loader_id.clone();
-            if !state.lifecycle.iter().any(|(l, _)| *l == loader) {
+            if initial_url == "about:blank" && !state.lifecycle.iter().any(|(l, _)| *l == loader) {
                 for name in ["DOMContentLoaded", "load", "networkIdle"] {
                     state.record(&loader, name);
                 }
             }
         }
-        // Routes registered on the context before this page existed apply to it too.
-        page.sync_fetch().await?;
-        // Out-of-process iframes attach as targets; flatten them onto this connection.
-        attach_iframes(&session).await?;
         Ok(page)
     }
 
@@ -900,16 +954,7 @@ impl Page {
 
     /// Resizes the viewport.
     pub async fn set_viewport(&self, viewport: Viewport) -> Result<()> {
-        self.inner
-            .session
-            .send(&emulation::SetDeviceMetricsOverrideParams {
-                width: viewport.width.into(),
-                height: viewport.height.into(),
-                device_scale_factor: 1.0,
-                mobile: false,
-                ..Default::default()
-            })
-            .await?;
+        self.inner.session.send(&viewport_params(viewport)).await?;
         Ok(())
     }
 
@@ -1032,6 +1077,68 @@ impl Page {
         match result {
             Err(e) if !e.is_browser_lost() => Err(e),
             _ => Ok(()),
+        }
+    }
+
+    /// The page that opened this one, if it was opened by a page and that page is still open.
+    pub fn opener(&self) -> Option<Page> {
+        let opener = self.inner.opener.as_ref()?.upgrade()?;
+        (!opener.is_closed()).then(|| Page::from_inner(opener))
+    }
+
+    /// Calls `handler` for every page this page opens (`window.open`, `target=_blank`).
+    pub fn on_popup(&self, handler: impl Fn(&Page) + Send + Sync + 'static) {
+        self.inner
+            .popup_handlers
+            .lock()
+            .unwrap()
+            .push(Arc::new(handler));
+    }
+
+    /// Waits for this page to open another. Starts listening as soon as it is called, so
+    /// create it before the action that opens the popup:
+    ///
+    /// ```no_run
+    /// # async fn demo(page: agito::Page) -> agito::Result<()> {
+    /// let popup = page.wait_for_popup(None);
+    /// page.get_by_text("Open in new tab").click().await?;
+    /// let popup = popup.await?;
+    /// popup.wait_for_load_state(agito::WaitUntil::Load, None).await?;
+    /// # Ok(()) }
+    /// ```
+    pub fn wait_for_popup(
+        &self,
+        timeout: Option<Duration>,
+    ) -> impl Future<Output = Result<Page>> + Send + 'static {
+        let mut events = self.inner.events.subscribe();
+        let timeout = timeout.unwrap_or(self.inner.context.options().navigation_timeout);
+        let page = self.clone();
+        async move {
+            let wait = async {
+                loop {
+                    match events.recv().await {
+                        Ok(PageEvent::Popup(popup)) => return Ok(popup),
+                        Ok(PageEvent::Closed) | Err(broadcast::error::RecvError::Closed) => {
+                            return Err(page.closed_error());
+                        }
+                        _ => {}
+                    }
+                }
+            };
+            tokio::time::timeout(timeout, wait)
+                .await
+                .unwrap_or_else(|_| {
+                    Err(ErrorKind::WaitTimeout {
+                        condition: "popup".into(),
+                        timeout,
+                        last_evaluated_value: None,
+                        message: format!(
+                            "The page opened no popup within {}ms.",
+                            timeout.as_millis()
+                        ),
+                    }
+                    .into())
+                })
         }
     }
 
@@ -1387,16 +1494,39 @@ async fn enable_session(session: &Arc<dyn Session>) -> Result<()> {
     Ok(())
 }
 
+fn auto_attach_params() -> target::SetAutoAttachParams {
+    target::SetAutoAttachParams {
+        auto_attach: true,
+        wait_for_debugger_on_start: false,
+        flatten: Some(true),
+        ..Default::default()
+    }
+}
+
 async fn attach_iframes(session: &Arc<dyn Session>) -> Result<()> {
-    session
-        .send(&target::SetAutoAttachParams {
-            auto_attach: true,
-            wait_for_debugger_on_start: false,
-            flatten: Some(true),
-            ..Default::default()
-        })
-        .await?;
+    session.send(&auto_attach_params()).await?;
     Ok(())
+}
+
+fn viewport_params(viewport: Viewport) -> emulation::SetDeviceMetricsOverrideParams {
+    emulation::SetDeviceMetricsOverrideParams {
+        width: viewport.width.into(),
+        height: viewport.height.into(),
+        device_scale_factor: 1.0,
+        mobile: false,
+        ..Default::default()
+    }
+}
+
+type SetupStep<'a> = Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
+
+/// One command of a page's setup batch.
+fn step<'a, C>(session: &'a Arc<dyn Session>, command: C) -> SetupStep<'a>
+where
+    C: agito_protocol::Command + Send + Sync + 'a,
+    C::Response: Send,
+{
+    Box::pin(async move { session.send(&command).await.map(|_| ()) })
 }
 
 fn record_tree(state: &mut PageState, node: &cdp_page::FrameTree, session_id: Option<&str>) {

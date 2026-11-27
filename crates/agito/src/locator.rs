@@ -480,10 +480,22 @@ impl Locator {
             )));
         }
         if checks.scroll {
-            self.eval::<bool>(&handle, SCROLL_INTO_VIEW, &[]).await?;
+            let mut scrolled: bool = self.eval(&handle, SCROLL_INTO_VIEW, &[]).await?;
             let frame = self.resolve_frame().await?;
             if !frame.is_main() {
-                frame.scroll_into_view(SCROLL_INTO_VIEW).await?;
+                scrolled |= frame.scroll_into_view(SCROLL_INTO_VIEW).await?;
+                if scrolled {
+                    // Input reaches an out-of-process frame through the compositor, which can
+                    // still hold the layout from before the scroll. Let it catch up, then
+                    // measure again.
+                    frame.settle_rendering().await?;
+                    return Ok(Err((
+                        "scrollIntoView",
+                        Some(
+                            "element was scrolled into view; waiting for the page to settle".into(),
+                        ),
+                    )));
+                }
             }
         }
         if checks.stable {

@@ -88,6 +88,20 @@ Routes can also be set on a `BrowserContext`, where they apply to every page in 
 can fulfill a request, continue it (optionally changing the URL, method, headers or body), or
 abort it. A handler that does none of these lets the request through unchanged.
 
+## Popups
+
+```rust
+let popup = page.wait_for_popup(None);           // listening starts here
+page.get_by_text("Open report").click().await?;
+let popup = popup.await?;
+popup.wait_for_load_state(agito::WaitUntil::Load, None).await?;
+expect(&popup.locator("h1")).to_have_text("Report").await?;
+```
+
+Pages opened by pages, from `window.open` or `target=_blank` links, get the context's
+viewport, init scripts and routes before they run. `context.on_page` and
+`context.wait_for_page` see every new page in a context.
+
 ## Scripts
 
 ```rust

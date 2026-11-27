@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Popups and pages opened by pages (`window.open`, `target=_blank`, `noopener`):
+  - `page.wait_for_popup`, `page.on_popup` and `page.opener()`.
+  - `context.wait_for_page` and `context.on_page`, which fire for every page in the
+    context, including those from `new_page`.
+  - A popup gets the context's viewport, emulation, init scripts and routes before it runs
+    anything, including its first request.
+
+### Changed
+- New pages attach through browser-level auto-attach and start paused, so agito sets them up
+  before they load anything. Tabs in contexts agito does not own are left running and
+  detached.
+
+### Fixed
+- Clicks in out-of-process iframes that had to be scrolled into view sometimes missed. Chrome
+  routes input to such frames through the compositor, which can lag a frame behind a scroll.
+  agito now waits for the page to render after scrolling, then re-checks before clicking.
+- `evaluate::<()>` no longer asks the browser to serialize the result. Values like a
+  `Window` cannot be serialized and used to fail.
+
 ## 0.2.0 (2026-11-27)
 
 ### Added

@@ -5,12 +5,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
-use agito_protocol::cdp::{network, storage, target};
+use agito_protocol::cdp::{network, runtime, storage, target};
+use tokio::sync::{broadcast, oneshot};
+
+use crate::transport::SessionRegistry;
 use serde::{Deserialize, Serialize};
 
 use crate::browser::Browser;
 use crate::config;
-use crate::error::Result;
+use crate::error::{Error, ErrorKind, Result};
 use crate::page::{Page, PageInner};
 use crate::plugin::{LifecycleHook, PluginHost};
 use crate::selectors::SelectorRegistry;
@@ -143,7 +146,18 @@ pub(crate) struct ContextInner {
     pub routes: Mutex<Vec<crate::network::RouteEntry>>,
     pages: Mutex<Vec<Weak<PageInner>>>,
     closed: AtomicBool,
+    /// Held while `new_page` creates a target, so the attach that follows knows it is claimed.
+    creating: tokio::sync::Mutex<()>,
+    /// Targets `new_page` created and is waiting for, by target id.
+    claims: Mutex<HashMap<String, oneshot::Sender<Result<Page>>>>,
+    page_events: broadcast::Sender<Page>,
+    page_handlers: Mutex<Vec<PageHandler>>,
 }
+
+type PageHandler = Arc<dyn Fn(&Page) + Send + Sync>;
+
+/// How long `new_page` waits for its target to attach.
+const ATTACH_TIMEOUT: Duration = Duration::from_secs(30);
 
 impl BrowserContext {
     pub(crate) fn from_inner(inner: Arc<ContextInner>) -> Self {
@@ -167,6 +181,10 @@ impl BrowserContext {
             routes: Mutex::new(Vec::new()),
             pages: Mutex::new(Vec::new()),
             closed: AtomicBool::new(false),
+            creating: tokio::sync::Mutex::new(()),
+            claims: Mutex::new(HashMap::new()),
+            page_events: broadcast::channel(64).0,
+            page_handlers: Mutex::new(Vec::new()),
         });
         Ok(Self { inner })
     }
@@ -188,55 +206,105 @@ impl BrowserContext {
     /// Opens a new page in this context.
     pub async fn new_page(&self) -> Result<Page> {
         let browser_session = self.inner.browser.browser_session();
-        let created = browser_session
-            .send(&target::CreateTargetParams {
-                url: "about:blank".into(),
-                browser_context_id: Some(self.inner.id.clone()),
-                // Each page gets its own window, so opening a page never hides another: a
-                // background tab does not render, and input sent to it stalls.
-                new_window: Some(true),
-                ..Default::default()
-            })
-            .await?;
-        let attached = browser_session
-            .send(&target::AttachToTargetParams {
-                target_id: created.target_id.clone(),
-                flatten: Some(true),
-            })
-            .await;
-        let attached = match attached {
-            Ok(a) => a,
-            Err(e) => {
-                let _ = browser_session
-                    .send(&target::CloseTargetParams {
-                        target_id: created.target_id,
-                    })
-                    .await;
-                return Err(e);
-            }
+        let (tx, rx) = oneshot::channel();
+        let target_id = {
+            let _gate = self.inner.creating.lock().await;
+            let created = browser_session
+                .send(&target::CreateTargetParams {
+                    url: "about:blank".into(),
+                    browser_context_id: Some(self.inner.id.clone()),
+                    // Each page gets its own window, so opening a page never hides another: a
+                    // background tab does not render, and input sent to it stalls.
+                    new_window: Some(true),
+                    ..Default::default()
+                })
+                .await?;
+            self.inner
+                .claims
+                .lock()
+                .unwrap()
+                .insert(created.target_id.clone(), tx);
+            created.target_id
         };
-        let session = crate::transport::SessionRegistry::create_session(
-            self.inner.browser.registry().as_ref(),
-            &attached.session_id,
-        );
-        let page = match Page::initialize(self.clone(), session, created.target_id.clone()).await {
+        // The browser attaches the new target (paused) on its own; `adopt_target` sets the
+        // page up and hands it over here.
+        match tokio::time::timeout(ATTACH_TIMEOUT, rx).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => Err(Error::target_closed(
+                "page",
+                Some(&target_id),
+                "The new page closed before it was ready.",
+            )),
+            Err(_) => {
+                self.inner.claims.lock().unwrap().remove(&target_id);
+                let _ = browser_session
+                    .send(&target::CloseTargetParams { target_id })
+                    .await;
+                Err(Error::other(format!(
+                    "The new page was not attached within {}s.",
+                    ATTACH_TIMEOUT.as_secs()
+                )))
+            }
+        }
+    }
+
+    /// Sets up a page target the browser just attached (paused): one `new_page` created, or
+    /// one a page opened itself (a popup), and lets it run.
+    pub(crate) async fn adopt_target(
+        &self,
+        session_id: String,
+        info: target::TargetInfo,
+        paused: bool,
+    ) {
+        let claim = {
+            let _gate = self.inner.creating.lock().await;
+            self.inner.claims.lock().unwrap().remove(&info.target_id)
+        };
+        let registry = self.inner.browser.registry().clone();
+        let session = registry.create_session(&session_id);
+        let opener = info
+            .opener_id
+            .as_deref()
+            .and_then(|id| self.page_by_target(id));
+        let setup = async {
+            Page::initialize(
+                self.clone(),
+                session.clone(),
+                info.target_id.clone(),
+                opener.as_ref(),
+                &info.url,
+                paused,
+            )
+            .await
+        };
+        let page = match setup.await {
             Ok(page) => page,
             Err(e) => {
-                crate::transport::SessionRegistry::remove_session(
-                    self.inner.browser.registry().as_ref(),
-                    &attached.session_id,
-                );
-                let _ = browser_session
-                    .send(&target::CloseTargetParams {
-                        target_id: created.target_id,
-                    })
+                let _ = session
+                    .send(&runtime::RunIfWaitingForDebuggerParams {})
                     .await;
-                return Err(e);
+                registry.remove_session(&session_id);
+                match claim {
+                    Some(tx) => {
+                        let _ = self
+                            .inner
+                            .browser
+                            .browser_session()
+                            .send(&target::CloseTargetParams {
+                                target_id: info.target_id.clone(),
+                            })
+                            .await;
+                        let _ = tx.send(Err(e));
+                    }
+                    None if !e.is_browser_lost() => {
+                        tracing::warn!(target = %info.target_id, error = %e, "a new page could not be set up");
+                    }
+                    None => {}
+                }
+                return;
             }
         };
-        self.inner
-            .browser
-            .register_page(&attached.session_id, &page.inner);
+        self.inner.browser.register_page(&session_id, &page.inner);
         self.inner
             .pages
             .lock()
@@ -247,7 +315,71 @@ impl BrowserContext {
                 tracing::warn!(error = %e, "lifecycle hook on_page_created failed");
             }
         }
-        Ok(page)
+        let handlers = self.inner.page_handlers.lock().unwrap().clone();
+        for handler in handlers {
+            handler(&page);
+        }
+        let _ = self.inner.page_events.send(page.clone());
+        if let Some(opener) = &opener {
+            opener.inner.notify_popup(&page);
+        }
+        if let Some(tx) = claim {
+            let _ = tx.send(Ok(page));
+        }
+    }
+
+    fn page_by_target(&self, target_id: &str) -> Option<Page> {
+        self.pages()
+            .into_iter()
+            .find(|p| p.target_id() == target_id)
+    }
+
+    /// Calls `handler` for every page opened in this context, by `new_page` or by a page
+    /// (popups and `target=_blank` links).
+    pub fn on_page(&self, handler: impl Fn(&Page) + Send + Sync + 'static) {
+        self.inner
+            .page_handlers
+            .lock()
+            .unwrap()
+            .push(Arc::new(handler));
+    }
+
+    /// Waits for the next page opened in this context. Starts listening as soon as it is
+    /// called, so create it before the action that opens the page.
+    pub fn wait_for_page(
+        &self,
+        timeout: Option<Duration>,
+    ) -> impl std::future::Future<Output = Result<Page>> + Send + 'static {
+        let mut events = self.inner.page_events.subscribe();
+        let timeout = timeout.unwrap_or(self.inner.options.navigation_timeout);
+        async move {
+            let wait = async {
+                loop {
+                    match events.recv().await {
+                        Ok(page) => return Ok(page),
+                        Err(broadcast::error::RecvError::Lagged(_)) => {}
+                        Err(broadcast::error::RecvError::Closed) => {
+                            return Err(Error::target_closed(
+                                "context",
+                                None,
+                                "The context closed.",
+                            ));
+                        }
+                    }
+                }
+            };
+            tokio::time::timeout(timeout, wait)
+                .await
+                .unwrap_or_else(|_| {
+                    Err(ErrorKind::WaitTimeout {
+                        condition: "new page".into(),
+                        timeout,
+                        last_evaluated_value: None,
+                        message: format!("No new page opened within {}ms.", timeout.as_millis()),
+                    }
+                    .into())
+                })
+        }
     }
 
     /// The pages still open in this context.

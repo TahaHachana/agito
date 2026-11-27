@@ -273,7 +273,7 @@ impl Frame {
         let wrapped = format!(
             "(async () => {{ const __v = ({expression}); return typeof __v === 'function' ? await __v() : await __v; }})()"
         );
-        decode_value(self.evaluate_raw(&wrapped, true).await?)
+        decode_value(self.evaluate_raw(&wrapped, !discards::<T>()).await?)
     }
 
     /// Calls a JavaScript function in this frame with one serializable argument.
@@ -284,7 +284,7 @@ impl Frame {
     ) -> Result<T> {
         let arg = to_arg(arg)?;
         let expression = format!("(async () => await ({function})({arg}))()");
-        decode_value(self.evaluate_raw(&expression, true).await?)
+        decode_value(self.evaluate_raw(&expression, !discards::<T>()).await?)
     }
 
     /// The frame document's title.
@@ -391,8 +391,10 @@ impl Frame {
             {
                 return Ok(());
             }
-            // A frame adopted after it loaded never reports its lifecycle; ask the document.
+            // An out-of-process frame adopted after it loaded never reports its lifecycle; ask
+            // the document. (Elsewhere the blank document before a navigation would answer.)
             if name != "networkIdle"
+                && self.is_out_of_process()
                 && let Ok(ready) = self.evaluate::<String>("document.readyState").await
                 && (ready == "complete" || (name == "DOMContentLoaded" && ready == "interactive"))
             {
@@ -487,12 +489,14 @@ impl Frame {
         Ok((x, y))
     }
 
-    /// Scrolls every `<iframe>` holding this frame into view, outermost last.
-    pub(crate) async fn scroll_into_view(&self, scroll_js: &str) -> Result<()> {
+    /// Scrolls every `<iframe>` holding this frame into view, outermost last. Returns
+    /// whether anything moved.
+    pub(crate) async fn scroll_into_view(&self, scroll_js: &str) -> Result<bool> {
+        let mut scrolled = false;
         let mut current = self.clone();
         while let Some(parent) = current.parent_frame() {
             let owner = current.owner_element(&parent).await?;
-            call_function(
+            let moved = call_function(
                 &owner.session,
                 owner.object_id(),
                 scroll_js,
@@ -501,7 +505,23 @@ impl Frame {
                 false,
             )
             .await?;
+            scrolled |= moved.value == Some(serde_json::Value::Bool(true));
             current = parent;
+        }
+        Ok(scrolled)
+    }
+
+    /// Waits for this frame and every frame holding it to render twice, so a scroll has
+    /// reached the compositor that routes input to out-of-process frames.
+    pub(crate) async fn settle_rendering(&self) -> Result<()> {
+        let mut current = Some(self.clone());
+        while let Some(frame) = current {
+            frame
+                .evaluate::<()>(
+                    "new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r())))",
+                )
+                .await?;
+            current = frame.parent_frame();
         }
         Ok(())
     }
@@ -590,4 +610,10 @@ pub(crate) async fn content_frame_id(handle: &ElementHandle) -> Result<Option<St
         })
         .await?;
     Ok(described.node.frame_id)
+}
+
+/// Whether the caller asked for `()`, so the value need not be serialized at all (it may not
+/// be serializable, like a `Window`).
+fn discards<T>() -> bool {
+    std::any::type_name::<T>() == "()"
 }
