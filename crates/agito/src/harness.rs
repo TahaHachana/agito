@@ -259,13 +259,25 @@ where
         None
     };
     let _ = fixtures.context.close().await;
+    // A browser that went away under the test makes any failure meaningless, however the test
+    // reported it: an assertion on an error it expected (`unwrap_err()` on a click that should
+    // time out) sees the disconnect instead, and panics. Such a failure is retried like any
+    // other loss of the browser.
+    let browser_died = failed && !fixtures.browser.is_connected();
     let attempt = match outcome {
         Ok(r) => match r.outcome() {
             Ok(()) => Attempt::Passed,
             Err(message) => Attempt::Failed {
                 message,
-                browser_lost: r.browser_lost(),
+                browser_lost: r.browser_lost() || browser_died,
             },
+        },
+        Err(panic) if browser_died => Attempt::Failed {
+            message: format!(
+                "{} (the browser disconnected during the test)",
+                panic_message(panic.as_ref())
+            ),
+            browser_lost: true,
         },
         Err(panic) => Attempt::Panicked(panic),
     };

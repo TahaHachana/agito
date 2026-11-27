@@ -56,6 +56,11 @@
   detached.
 
 ### Fixed
+- `#[agito::test]` re-runs a test whose browser went away during it, however the test
+  failed. Before, only a test that returned the browser-lost error was re-run: one that
+  asserted on an error it expected (`unwrap_err()` on a click meant to time out) saw the
+  disconnect instead and panicked, which failed it. Chrome itself sometimes crashes during a
+  run (seen with Chrome for Testing 158), which made `actionability_failures_say_why` flaky.
 - A command still waiting for its answer when its page closed waited out the full 60s
   command timeout, because Chrome does not answer commands on a target it is destroying. A
   click on a button that closes its own window sometimes did this. Such commands now fail at
