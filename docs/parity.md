@@ -8,7 +8,7 @@ run real browser tests.
 | 0 | Workspace, CI, CDP codegen (`xtask`), protocol crate | Done |
 | 1 | Transport: sockets (WebSocket, pipe), CDP connection, sessions, capabilities, fake socket | Done (protocol log pending) |
 | 2 | Launcher, browser finder, Browser/Context/Page/Frame, handles, input, config | Done for Chromium (see gaps) |
-| 3 | Plugins, selectors, Locator + actionability, network/routing/HAR, dialogs/downloads/file chooser | Done except downloads/file chooser |
+| 3 | Plugins, selectors, Locator + actionability, network/routing/HAR, dialogs/downloads/file chooser | Done |
 | 4 | `expect` assertions, `#[agito::test]` harness, samples | MVP done (see gaps) |
 | 5 | Firefox / WebDriver BiDi | Not started |
 | 6 | Accessibility, performance, coverage, tracing, video | Not started |
@@ -45,12 +45,13 @@ run real browser tests.
 | `IRoute`, `RouteAsync` / `UnrouteAsync` on page and context | `network::Route` (`fulfill`, `continue_`, `abort`), `page.route` / `context.route`, `unroute(RouteId)`, `unroute_all` |
 | `HarRecorder`, `StartHarRecordingAsync` / `StopHarRecordingAsync` | `page.start_har` / `stop_har` / `stop_har_to` |
 | `IPage.Popup`, `IBrowserContext.Page`, target discovery and adoption | `page.on_popup` / `wait_for_popup` / `opener`, `context.on_page` / `wait_for_page` |
+| `ILocator.SetInputFilesAsync`, `IFileChooser` | `locator.set_input_files` (paths or `FilePayload`s), `page.wait_for_file_chooser` / `on_file_chooser`, `FileChooser::set_files` |
+| `IDownload`, `IPage.Download` | `Download` (`path`, `save_as`, `failure`, `cancel`, `delete`, `progress`), `page.wait_for_download` / `on_download` |
 
 ## Known gaps in the MVP
 
 - **Not yet ported:**
-  - From the page: downloads, file chooser, touch input, natural mouse motion, the cursor
-    overlay. Adopting tabs that were already open when connecting is not ported either.
+  - From the page: touch input, natural mouse motion, the cursor overlay. Adopting tabs that were already open when connecting is not ported either.
   - Exposed bindings, storage state, permissions, geolocation, HTTP credentials.
   - Browser pool, heartbeat, and signal handlers.
 - **Platforms:** Windows launches over a WebSocket port. The shared test browser is killed at
@@ -96,6 +97,14 @@ run real browser tests.
 - New pages attach through browser-level auto-attach and start paused, so a popup's first
   request and scripts already see the context's routes, init scripts and emulation. Motus
   discovered targets (`Target.setDiscoverTargets`) and attached after they started.
+
+- `set_input_files` requires the input only to be attached and enabled, not visible (styled
+  upload buttons hide the input); Motus waited for visibility. It also takes paths on disk,
+  not only in-memory files, and clearing works (Chrome ignores an empty file list).
+- `FileChooser::set_files` targets the input that opened the chooser; Motus's call named no
+  element. Downloads go to a per-context directory through `Browser.setDownloadBehavior`
+  (`allowAndName`), so `path`/`save_as` return the file; in Motus the path was never
+  recorded.
 
 ## Inherited as-is
 

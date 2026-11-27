@@ -3,6 +3,15 @@
 ## Unreleased
 
 ### Added
+- Uploads:
+  - `locator.set_input_files` takes paths or in-memory `FilePayload`s, works on hidden
+    inputs, and clears the input when given `InputFiles::none()`.
+  - File choosers: `page.wait_for_file_chooser` and `page.on_file_chooser` return a
+    `FileChooser` with `set_files`, `element()` and `is_multiple()`. File inputs no longer
+    open native pickers.
+- Downloads: `page.wait_for_download` and `page.on_download` return a `Download` with `path`,
+  `save_as`, `failure`, `cancel`, `delete`, `progress`, `url` and `suggested_filename`.
+  Each context downloads into its own temporary directory, removed when the context closes.
 - Popups and pages opened by pages (`window.open`, `target=_blank`, `noopener`):
   - `page.wait_for_popup`, `page.on_popup` and `page.opener()`.
   - `context.wait_for_page` and `context.on_page`, which fire for every page in the

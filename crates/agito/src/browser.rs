@@ -12,6 +12,7 @@ use tokio::task::JoinHandle;
 
 use crate::context::{BrowserContext, ContextOptions};
 use crate::error::Result;
+use crate::files::Download;
 use crate::launch::OutputTail;
 use crate::page::{Page, PageInner};
 use crate::plugin::Plugin;
@@ -258,7 +259,12 @@ impl Drop for BrowserInner {
 
 /// Watches browser-level target events: marks pages closed when their target detaches.
 async fn target_pump(browser: Weak<BrowserInner>, session: Arc<dyn Session>) {
-    let mut events = session.subscribe(&["Target.detachedFromTarget", "Target.attachedToTarget"]);
+    let mut events = session.subscribe(&[
+        "Target.detachedFromTarget",
+        "Target.attachedToTarget",
+        "Browser.downloadWillBegin",
+        "Browser.downloadProgress",
+    ]);
     while let Some(event) = events.next().await {
         let Some(inner) = browser.upgrade() else {
             return;
@@ -287,6 +293,60 @@ async fn target_pump(browser: Weak<BrowserInner>, session: Arc<dyn Session>) {
                     // Not ours (another context, or not a page): let it run and leave it be.
                     None => {
                         tokio::spawn(release_target(browser, e.session_id));
+                    }
+                }
+            }
+            "Browser.downloadWillBegin" => {
+                let Ok(e) =
+                    serde_json::from_value::<cdp_browser::DownloadWillBeginEvent>(event.params)
+                else {
+                    continue;
+                };
+                let browser = Browser { inner };
+                // The download belongs to the page whose frame started it.
+                let owner = browser.contexts().into_iter().find_map(|context| {
+                    context
+                        .pages()
+                        .into_iter()
+                        .find(|p| p.frame_by_id(&e.frame_id).is_some())
+                        .map(|p| (context, p))
+                });
+                let Some((context, page)) = owner else {
+                    continue;
+                };
+                let download = Download::new(
+                    &e,
+                    &context.inner.download_dir,
+                    context.id().to_owned(),
+                    Arc::downgrade(&page.inner),
+                    browser.browser_session(),
+                );
+                context
+                    .inner
+                    .downloads
+                    .lock()
+                    .unwrap()
+                    .insert(download.guid().to_owned(), download.clone());
+                page.inner.notify_download(&download);
+            }
+            "Browser.downloadProgress" => {
+                let Ok(e) =
+                    serde_json::from_value::<cdp_browser::DownloadProgressEvent>(event.params)
+                else {
+                    continue;
+                };
+                let browser = Browser { inner };
+                for context in browser.contexts() {
+                    let download = context
+                        .inner
+                        .downloads
+                        .lock()
+                        .unwrap()
+                        .get(&e.guid)
+                        .cloned();
+                    if let Some(download) = download {
+                        download.on_progress(&e);
+                        break;
                     }
                 }
             }

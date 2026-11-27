@@ -1,11 +1,12 @@
 //! Browser contexts: isolated sessions (cookies, storage, cache) holding pages.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
-use agito_protocol::cdp::{network, runtime, storage, target};
+use agito_protocol::cdp::{browser as cdp_browser, network, runtime, storage, target};
 use tokio::sync::{broadcast, oneshot};
 
 use crate::transport::SessionRegistry;
@@ -14,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::browser::Browser;
 use crate::config;
 use crate::error::{Error, ErrorKind, Result};
+use crate::files::Download;
 use crate::page::{Page, PageInner};
 use crate::plugin::{LifecycleHook, PluginHost};
 use crate::selectors::SelectorRegistry;
@@ -152,6 +154,15 @@ pub(crate) struct ContextInner {
     claims: Mutex<HashMap<String, oneshot::Sender<Result<Page>>>>,
     page_events: broadcast::Sender<Page>,
     page_handlers: Mutex<Vec<PageHandler>>,
+    /// Where this context's downloads land, named by download id; removed with the context.
+    pub download_dir: PathBuf,
+    pub downloads: Mutex<HashMap<String, Download>>,
+}
+
+impl Drop for ContextInner {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.download_dir);
+    }
 }
 
 type PageHandler = Arc<dyn Fn(&Page) + Send + Sync>;
@@ -170,6 +181,20 @@ impl BrowserContext {
         options: ContextOptions,
     ) -> Result<Self> {
         let host = PluginHost::load(&browser.inner.plugins).await?;
+        let download_dir = crate::files::temp_dir("downloads")?;
+        let behavior = browser
+            .browser_session()
+            .send(&cdp_browser::SetDownloadBehaviorParams {
+                behavior: cdp_browser::SetDownloadBehaviorParamsBehavior::AllowAndName,
+                browser_context_id: Some(id.clone()),
+                download_path: Some(download_dir.to_string_lossy().into_owned()),
+                events_enabled: Some(true),
+            })
+            .await;
+        if let Err(e) = behavior {
+            let _ = std::fs::remove_dir_all(&download_dir);
+            return Err(e);
+        }
         let inner = Arc::new(ContextInner {
             browser,
             id,
@@ -185,6 +210,8 @@ impl BrowserContext {
             claims: Mutex::new(HashMap::new()),
             page_events: broadcast::channel(64).0,
             page_handlers: Mutex::new(Vec::new()),
+            download_dir,
+            downloads: Mutex::new(HashMap::new()),
         });
         Ok(Self { inner })
     }
@@ -519,6 +546,7 @@ impl BrowserContext {
                 .map(|_| ())
         };
         self.inner.plugin_host.unload().await;
+        let _ = std::fs::remove_dir_all(&self.inner.download_dir);
         result
     }
 
