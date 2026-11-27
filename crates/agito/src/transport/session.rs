@@ -66,6 +66,7 @@ pub struct CdpSession {
 }
 
 impl CdpSession {
+    /// A session over `connection`; `None` is the browser session.
     pub fn new(connection: CdpConnection, session_id: Option<String>) -> Self {
         Self {
             connection,
@@ -73,6 +74,7 @@ impl CdpSession {
         }
     }
 
+    /// The connection it uses.
     pub fn connection(&self) -> &CdpConnection {
         &self.connection
     }
@@ -161,7 +163,9 @@ pub trait SessionRegistry: Send + Sync + 'static {
     fn browser_session(&self) -> Arc<dyn Session>;
     /// Creates and registers a session for a target.
     fn create_session(&self, session_id: &str) -> Arc<dyn Session>;
+    /// The session with this id, if it is open.
     fn get_session(&self, session_id: &str) -> Option<Arc<dyn Session>>;
+    /// Forgets a session. Returns whether it was known.
     fn remove_session(&self, session_id: &str) -> bool;
 }
 
@@ -173,6 +177,7 @@ pub struct CdpSessionRegistry {
 }
 
 impl CdpSessionRegistry {
+    /// A registry for the sessions on `connection`.
     pub fn new(connection: CdpConnection) -> Self {
         let browser: Arc<dyn Session> = Arc::new(CdpSession::new(connection.clone(), None));
         Self {
@@ -182,10 +187,12 @@ impl CdpSessionRegistry {
         }
     }
 
+    /// The connection the sessions share.
     pub fn connection(&self) -> &CdpConnection {
         &self.connection
     }
 
+    /// The sessions currently open.
     pub fn active_sessions(&self) -> Vec<Arc<dyn Session>> {
         self.sessions.lock().unwrap().values().cloned().collect()
     }

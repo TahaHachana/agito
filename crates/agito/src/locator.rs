@@ -73,15 +73,17 @@ const ATTACHED: Checks = Checks {
 /// A state for [`Locator::wait_for`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ElementState {
+    /// Present in the document.
     Attached,
+    /// Not in the document.
     Detached,
+    /// Visible.
     #[default]
     Visible,
+    /// Hidden, or not in the document.
     Hidden,
 }
 
-/// Finds elements when used, never in advance, so it survives re-renders. Actions wait for the
-/// element to be actionable (attached, visible, enabled, stable, not covered) before acting.
 /// One refinement applied after the base selector, in the order written.
 #[derive(Debug, Clone)]
 enum Step {
@@ -100,6 +102,17 @@ enum Step {
 ///
 /// Refinements (`locator`, `filter_has_text`, `first`, `nth`, ...) apply in the order they
 /// are chained, and a locator that matches several elements acts on the first.
+///
+/// ```no_run
+/// # async fn example(page: agito::Page) -> agito::Result<()> {
+/// use agito::expect;
+///
+/// let products = page.locator(".product");
+/// let mug = products.filter_has_text("mug");
+/// mug.locator("button")?.click().await?;
+/// expect(&page.locator("#cart-count")).to_have_text("1").await?;
+/// # Ok(()) }
+/// ```
 #[derive(Clone)]
 #[must_use = "a locator does nothing until an action or query runs on it"]
 pub struct Locator {

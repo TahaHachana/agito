@@ -21,6 +21,7 @@ async fn add_todo_appears_in_list(page: Page) -> agito::Result<()> {
     Ok(())
 }
 
+// ANCHOR: page_object_test
 #[agito::test]
 async fn complete_todo_updates_active_count(page: Page) -> agito::Result<()> {
     let todo = todo(&page).await?;
@@ -34,6 +35,7 @@ async fn complete_todo_updates_active_count(page: Page) -> agito::Result<()> {
         .await?;
     Ok(())
 }
+// ANCHOR_END: page_object_test
 
 #[agito::test]
 async fn clear_completed_removes_finished_items(page: Page) -> agito::Result<()> {

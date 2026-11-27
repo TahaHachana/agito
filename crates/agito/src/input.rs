@@ -12,9 +12,12 @@ use crate::transport::Session;
 /// A mouse button.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MouseButton {
+    /// The primary button.
     #[default]
     Left,
+    /// The secondary button.
     Right,
+    /// The wheel button.
     Middle,
 }
 
@@ -31,6 +34,7 @@ impl MouseButton {
 /// Options for a click.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ClickOptions {
+    /// Which button to press.
     pub button: MouseButton,
     /// How many clicks this is (2 for the second click of a double click).
     pub click_count: Option<u32>,

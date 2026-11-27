@@ -111,10 +111,12 @@ impl Request {
         &self.inner.id
     }
 
+    /// The request's URL.
     pub fn url(&self) -> &str {
         &self.inner.url
     }
 
+    /// The HTTP method, such as `GET`.
     pub fn method(&self) -> &str {
         &self.inner.method
     }
@@ -309,14 +311,17 @@ impl Response {
         }
     }
 
+    /// The response's URL.
     pub fn url(&self) -> &str {
         &self.data.url
     }
 
+    /// The HTTP status code.
     pub fn status(&self) -> u16 {
         self.data.status
     }
 
+    /// The HTTP status text, such as `OK`.
     pub fn status_text(&self) -> &str {
         &self.data.status_text
     }
@@ -339,6 +344,7 @@ impl Response {
             .map(String::as_str)
     }
 
+    /// The MIME type, such as `text/html`.
     pub fn mime_type(&self) -> &str {
         &self.data.mime_type
     }
@@ -390,8 +396,11 @@ impl Response {
 pub struct FulfillOptions {
     /// Defaults to 200.
     pub status: Option<u16>,
+    /// Response headers.
     pub headers: HashMap<String, String>,
+    /// The `Content-Type` header.
     pub content_type: Option<String>,
+    /// The response body.
     pub body: Vec<u8>,
     /// Read the body from this file instead.
     pub path: Option<PathBuf>,
@@ -441,10 +450,13 @@ impl FulfillOptions {
 /// Changes to make to an intercepted request before letting it through.
 #[derive(Debug, Clone, Default)]
 pub struct ContinueOptions {
+    /// Send the request to this URL instead.
     pub url: Option<String>,
+    /// Use this HTTP method instead.
     pub method: Option<String>,
     /// Replaces all headers.
     pub headers: Option<HashMap<String, String>>,
+    /// Send this body instead.
     pub post_data: Option<String>,
 }
 
@@ -585,6 +597,7 @@ type RouteHandlerFn = Arc<dyn Fn(Arc<Route>) -> RouteFuture + Send + Sync>;
 pub struct RoutePattern(UrlMatcher);
 
 impl RoutePattern {
+    /// Whether `url` matches the pattern.
     pub fn matches(&self, url: &str) -> bool {
         match &self.0 {
             UrlMatcher::Glob(p) if !p.contains('*') => url == p || url.contains(p.as_str()),

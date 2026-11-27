@@ -35,11 +35,24 @@ pub fn default_timeout() -> Duration {
 
 /// Something `expect` can assert on.
 pub trait Expect {
+    /// The assertions available on this type.
     type Assertions;
+    /// Starts assertions on `self`.
     fn expect(&self) -> Self::Assertions;
 }
 
-/// Starts an assertion on a locator, a page or a response.
+/// Starts an assertion on a locator, a page or a response. Assertions on locators and pages
+/// retry until they hold or time out (10 seconds by default).
+///
+/// ```no_run
+/// # async fn example(page: agito::Page) -> agito::Result<()> {
+/// use agito::expect;
+///
+/// expect(&page).to_have_title("Demo shop").await?;
+/// expect(&page.locator(".product")).to_have_count(3).await?;
+/// expect(&page.get_by_text("Sold out")).not().to_be_visible().await?;
+/// # Ok(()) }
+/// ```
 pub fn expect<T: Expect + ?Sized>(subject: &T) -> T::Assertions {
     subject.expect()
 }
@@ -47,7 +60,9 @@ pub fn expect<T: Expect + ?Sized>(subject: &T) -> T::Assertions {
 /// Text to compare against: an exact string or a regex.
 #[derive(Debug, Clone)]
 pub enum TextMatch {
+    /// The whole text equals this string.
     Exact(String),
+    /// The text matches this regex.
     Regex(Regex),
 }
 
@@ -253,11 +268,13 @@ impl LocatorAssertions {
         .await
     }
 
+    /// The element is visible. A missing element is not.
     pub async fn to_be_visible(self) -> Result<()> {
         self.bool_probe("to_be_visible", "visible", Locator::VISIBLE_JS, Some(false))
             .await
     }
 
+    /// The element is hidden, or missing.
     pub async fn to_be_hidden(self) -> Result<()> {
         self.run("to_be_hidden", "hidden", Some(true), |l| async move {
             let visible: bool = l.probe_eval(Locator::VISIBLE_JS, &[]).await?;
@@ -266,11 +283,13 @@ impl LocatorAssertions {
         .await
     }
 
+    /// The element is enabled.
     pub async fn to_be_enabled(self) -> Result<()> {
         self.bool_probe("to_be_enabled", "enabled", Locator::ENABLED_JS, None)
             .await
     }
 
+    /// The element is disabled.
     pub async fn to_be_disabled(self) -> Result<()> {
         self.run("to_be_disabled", "disabled", None, |l| async move {
             let enabled: bool = l.probe_eval(Locator::ENABLED_JS, &[]).await?;
@@ -279,11 +298,13 @@ impl LocatorAssertions {
         .await
     }
 
+    /// The element is an enabled, writable input, textarea, `contenteditable` or `role=textbox`.
     pub async fn to_be_editable(self) -> Result<()> {
         self.bool_probe("to_be_editable", "editable", Locator::EDITABLE_JS, None)
             .await
     }
 
+    /// A checkbox or radio button is checked.
     pub async fn to_be_checked(self) -> Result<()> {
         self.run("to_be_checked", "checked", None, |l| async move {
             let v = l.probe_checked().await?;
@@ -292,6 +313,7 @@ impl LocatorAssertions {
         .await
     }
 
+    /// An input, textarea or select has no value; any other element has no text but whitespace.
     pub async fn to_be_empty(self) -> Result<()> {
         self.bool_probe(
             "to_be_empty",
@@ -304,6 +326,7 @@ impl LocatorAssertions {
         .await
     }
 
+    /// The element has focus.
     pub async fn to_be_focused(self) -> Result<()> {
         self.bool_probe(
             "to_be_focused",
@@ -314,6 +337,7 @@ impl LocatorAssertions {
         .await
     }
 
+    /// The locator matches at least one element in the document.
     pub async fn to_be_attached(self) -> Result<()> {
         self.run("to_be_attached", "attached", Some(false), |l| async move {
             let count = l.count().await?;
@@ -322,6 +346,7 @@ impl LocatorAssertions {
         .await
     }
 
+    /// The locator matches no element.
     pub async fn to_be_detached(self) -> Result<()> {
         self.run("to_be_detached", "detached", Some(true), |l| async move {
             let count = l.count().await?;
@@ -451,16 +476,19 @@ impl Expect for Page {
 }
 
 impl PageAssertions {
+    /// Inverts the assertion: it holds when the condition does not.
     pub fn not(mut self) -> Self {
         self.settings.negate = !self.settings.negate;
         self
     }
 
+    /// How long the assertion retries; the configured default otherwise.
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.settings.timeout = Some(timeout);
         self
     }
 
+    /// Replaces the failure message.
     pub fn with_message(mut self, message: impl Into<String>) -> Self {
         self.settings.message = Some(message.into());
         self
@@ -525,6 +553,7 @@ impl Expect for Response {
 }
 
 impl ResponseAssertions {
+    /// Inverts the assertion.
     pub fn not(mut self) -> Self {
         self.negate = !self.negate;
         self

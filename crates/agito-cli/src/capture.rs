@@ -15,7 +15,7 @@ const BANNERS: &str = include_str!("../js/banners.js");
 /// What every capture shares: which page, how to load it, and what to do before capturing.
 #[derive(Args, Debug)]
 pub struct PageArgs {
-    /// The page: a URL, a local HTML file, or a host name (https is assumed).
+    /// The page: a URL, a local HTML file, or a host name (http for localhost, https otherwise).
     pub url: String,
 
     /// Seconds to wait for the page to load.

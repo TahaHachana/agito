@@ -6,6 +6,7 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
+homepage.workspace = true
 readme = "../../README.md"
 keywords = ["browser", "automation", "testing", "cdp", "chrome"]
 categories = ["development-tools::testing", "web-programming", "api-bindings"]
@@ -39,3 +40,7 @@ agito = { path = ".", features = ["testing"] }
 tokio = { workspace = true, features = ["test-util"] }
 async-trait = "0.1"
 regex = "1"
+
+[package.metadata.docs.rs]
+# The crate docs link to the `testing` module, which only exists with this feature.
+features = ["testing"]

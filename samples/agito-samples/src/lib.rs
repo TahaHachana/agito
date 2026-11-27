@@ -18,6 +18,7 @@ pub const TODO_APP: &str = include_str!("../fixtures/todo.html");
 /// A login form: email, password, remember-me, role select, feedback.
 pub const LOGIN_FORM: &str = include_str!("../fixtures/login.html");
 
+// ANCHOR: page_object
 /// The page object for [`TODO_APP`].
 pub struct TodoAppPage {
     page: Page,
@@ -65,3 +66,4 @@ impl TodoAppPage {
         self.todo_items().locator("span")?.all_inner_texts().await
     }
 }
+// ANCHOR_END: page_object

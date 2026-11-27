@@ -22,11 +22,14 @@ pub trait SocketReceiver: Send + 'static {
 
 /// An open connection, ready to hand to a transport.
 pub struct SocketPair {
+    /// The sending half.
     pub sender: Box<dyn SocketSender>,
+    /// The receiving half.
     pub receiver: Box<dyn SocketReceiver>,
 }
 
 impl SocketPair {
+    /// A pair from its two halves.
     pub fn new(sender: impl SocketSender, receiver: impl SocketReceiver) -> Self {
         Self {
             sender: Box::new(sender),

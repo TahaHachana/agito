@@ -6,6 +6,8 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
+homepage.workspace = true
+documentation = "https://tahahachana.github.io/agito/reference/cli.html"
 keywords = ["browser", "automation", "testing", "cli", "chrome"]
 categories = ["development-tools::testing", "command-line-utilities"]
 

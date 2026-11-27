@@ -6,6 +6,7 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
+homepage.workspace = true
 keywords = ["cdp", "devtools", "chrome", "protocol"]
 categories = ["api-bindings", "web-programming"]
 # The JSON is only read by `cargo xtask codegen`; the generated code is checked in.

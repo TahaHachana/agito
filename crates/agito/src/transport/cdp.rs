@@ -26,7 +26,12 @@ pub enum TransportError {
     Disconnected(Option<String>),
     /// The browser answered with an error.
     #[error("{message}")]
-    Protocol { code: i64, message: String },
+    Protocol {
+        /// The protocol error code.
+        code: i64,
+        /// The browser's message.
+        message: String,
+    },
     /// No answer arrived in time.
     #[error("no answer within {0:?}")]
     Timeout(Duration),
@@ -38,9 +43,11 @@ pub enum TransportError {
 /// Whether the connection is still usable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConnectionState {
+    /// Commands can be sent.
     Open,
     /// Closed, with the error that closed it, if it was not a clean close.
     Closed {
+        /// The error that closed it, if it was not a clean close.
         error: Option<String>,
     },
 }
@@ -50,6 +57,7 @@ pub enum ConnectionState {
 pub struct ConnectionOptions {
     /// Delay before every command, to slow automation down for a watcher.
     pub slow_mo: Duration,
+    /// How long a command may wait for its answer.
     pub command_timeout: Duration,
 }
 

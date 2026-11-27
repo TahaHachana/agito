@@ -24,8 +24,11 @@ pub use finder::BrowserChannel;
 /// and `AGITO_*` variables applied, so code only names what it wants to change.
 #[derive(Clone)]
 pub struct LaunchOptions {
+    /// Run without a window.
     pub headless: bool,
+    /// Which installed browser to prefer.
     pub channel: Option<BrowserChannel>,
+    /// A browser executable to launch, instead of looking for one.
     pub executable_path: Option<PathBuf>,
     /// Extra command-line flags.
     pub args: Vec<String>,
@@ -37,6 +40,7 @@ pub struct LaunchOptions {
     pub timeout: Duration,
     /// A profile directory to use; a temporary one is created (and removed) otherwise.
     pub user_data_dir: Option<PathBuf>,
+    /// Where downloads go; each context uses a temporary directory otherwise.
     pub downloads_path: Option<PathBuf>,
     /// Run Chromium with its sandbox. Off by default, as in Playwright: CI machines,
     /// containers and browsers outside their packaged install path often cannot start a
@@ -83,8 +87,11 @@ impl Default for LaunchOptions {
 /// Options for [`connect`].
 #[derive(Clone)]
 pub struct ConnectOptions {
+    /// A pause before every protocol command.
     pub slow_mo: Duration,
+    /// How long connecting may take.
     pub timeout: Duration,
+    /// Plugins to load into every context, in addition to `#[agito::plugin]` registrations.
     pub plugins: Vec<Arc<dyn Plugin>>,
 }
 
@@ -104,6 +111,15 @@ impl Default for ConnectOptions {
 const PIPE_LAUNCH_SCRIPT: &str = r#"exec "$0" "$@" 3<&0 4>&1 1>/dev/null"#;
 
 /// Launches a browser.
+///
+/// ```no_run
+/// # async fn example() -> agito::Result<()> {
+/// let browser = agito::launch(agito::LaunchOptions::default()).await?;
+/// let page = browser.new_page(Default::default()).await?;
+/// page.goto("https://example.com").await?;
+/// browser.close().await?;
+/// # Ok(()) }
+/// ```
 pub async fn launch(options: LaunchOptions) -> Result<Browser> {
     let executable = finder::resolve(options.channel, options.executable_path.as_deref())?;
     let is_firefox = options.channel == Some(BrowserChannel::Firefox)

@@ -12,8 +12,11 @@ use tokio::sync::mpsc;
 /// An event as it came off the wire, before typed deserialization.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RawEvent {
+    /// The event's name, such as `Page.loadEventFired`.
     pub method: String,
+    /// The event's parameters.
     pub params: Value,
+    /// The session it came from; `None` for the browser's.
     pub session_id: Option<String>,
 }
 

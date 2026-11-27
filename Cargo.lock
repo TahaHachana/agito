@@ -69,7 +69,10 @@ name = "agito-samples"
 version = "0.0.0"
 dependencies = [
  "agito",
+ "async-trait",
  "base64",
+ "regex",
+ "serde_json",
 ]
 
 [[package]]

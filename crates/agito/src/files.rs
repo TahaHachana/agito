@@ -20,10 +20,12 @@ pub struct FilePayload {
     pub name: String,
     /// The MIME type the page sees; guessed from the browser's own rules from the name.
     pub mime_type: Option<String>,
+    /// The file's bytes.
     pub contents: Vec<u8>,
 }
 
 impl FilePayload {
+    /// A file called `name` holding `contents`.
     pub fn new(name: impl Into<String>, contents: impl Into<Vec<u8>>) -> Self {
         Self {
             name: name.into(),
@@ -36,7 +38,9 @@ impl FilePayload {
 /// What to put in a file input: files on disk, or files held in memory.
 #[derive(Debug, Clone)]
 pub enum InputFiles {
+    /// Files on disk.
     Paths(Vec<PathBuf>),
+    /// Files made in memory.
     Payloads(Vec<FilePayload>),
 }
 
