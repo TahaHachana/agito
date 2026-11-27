@@ -72,7 +72,7 @@ if ! $skip_tests; then
 
     step "Clippy"
     cargo clippy --workspace --all-targets \
-        --features agito/integration,agito-samples/integration -- -D warnings
+        --features agito/integration,agito-samples/integration,agito-cli/integration -- -D warnings
 
     step "Generated CDP bindings are current"
     cargo xtask codegen --check
@@ -82,8 +82,8 @@ if ! $skip_tests; then
 
     if $integration; then
         step "Browser tests"
-        cargo test -p agito -p agito-samples \
-            --features agito/integration,agito-samples/integration
+        cargo test -p agito -p agito-samples -p agito-cli \
+            --features agito/integration,agito-samples/integration,agito-cli/integration
     fi
 fi
 

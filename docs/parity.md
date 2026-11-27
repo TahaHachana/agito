@@ -13,7 +13,7 @@ run real browser tests.
 | 4 | `expect` assertions, `#[agito::test]` harness, samples | MVP done (see gaps) |
 | 5 | Firefox / WebDriver BiDi | Not started |
 | 6 | Accessibility, performance, coverage, tracing, video | Not started |
-| 7 | CLI (`agito`) | In progress: `install` done |
+| 7 | CLI (`agito`) | In progress: `install`, `screenshot`, `pdf` done |
 | 8 | Recorder, codegen, check-selectors | Not started |
 | 9 | MCP server | Not started |
 | 10 | Visual runner | Not started |
@@ -48,6 +48,7 @@ run real browser tests.
 | `IPage.Popup`, `IBrowserContext.Page`, target discovery and adoption | `page.on_popup` / `wait_for_popup` / `opener`, `context.on_page` / `wait_for_page` |
 | `ILocator.SetInputFilesAsync`, `IFileChooser` | `locator.set_input_files` (paths or `FilePayload`s), `page.wait_for_file_chooser` / `on_file_chooser`, `FileChooser::set_files` |
 | `motus install` (`BrowserInstaller`) | `agito install` (crate `agito-cli`), writing the markers `launch::finder` reads |
+| `motus screenshot`, `motus pdf`, `BannerRemoval` | `agito screenshot`, `agito pdf`, `js/banners.js` |
 | `IDownload`, `IPage.Download` | `Download` (`path`, `save_as`, `failure`, `cancel`, `delete`, `progress`), `page.wait_for_download` / `on_download` |
 
 ## Known gaps in the MVP
@@ -118,6 +119,21 @@ run real browser tests.
   build's name.
 - `agito install --channel chrome|edge|firefox` fails with a message rather than exiting
   successfully without installing anything. There is no legacy `.installed` marker.
+- `agito screenshot` and `agito pdf`:
+  - The browser comes from `agito.config.json`, `AGITO_*` and the install marker, as in a
+    test. Motus read only the marker.
+  - They also take a local file or a bare host name (http for localhost, https otherwise).
+  - They hide scrollbars, so captures have no scrollbar strip and a full-page shot is the
+    viewport's width, not the content's.
+  - The screenshot format follows the output's extension, and `--quality` applies to JPEG
+    and WebP. `--delay` takes fractions of a second.
+  - pdf adds `--landscape` and `--background`.
+  - They warn when the page answers with an HTTP error, and fail when it cannot load.
+- `--hide-banners` removes known consent managers by id, and anything else named for
+  cookies, consent, GDPR or privacy only through its outermost fixed or sticky container.
+  Motus removed every element whose class or id held one of those words (or `cc-`), which
+  took out footer links, articles, and the whole page when `<body>` matched. It also cleared
+  scroll locks even when it removed nothing.
 
 ## Inherited as-is
 

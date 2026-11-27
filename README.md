@@ -139,6 +139,13 @@ agito install --revision 131.0.6778.85
 
 Builds go to `~/.agito/browsers`, and the launcher prefers the last one installed there.
 
+The same tool captures pages:
+
+```bash
+agito screenshot example.com -o page.png --full-page --hide-banners
+agito pdf report.html -o report.pdf --background
+```
+
 ## Configuration
 
 Settings come from three places, each overriding the one before:
@@ -167,7 +174,7 @@ Variables: `AGITO_HEADLESS`, `AGITO_CHANNEL`, `AGITO_SLOWMO`, `AGITO_LAUNCH_TIME
 | Crate | What it holds |
 |---|---|
 | `crates/agito` | The engine: launcher, transport, browser/context/page, locators, input, selectors, plugins, `expect`, test harness |
-| `crates/agito-cli` | The `agito` command-line tool: `agito install` |
+| `crates/agito-cli` | The `agito` command-line tool: `install`, `screenshot`, `pdf` |
 | `crates/agito-macros` | `#[agito::test]` and `#[agito::plugin]` |
 | `crates/agito-protocol` | CDP bindings generated from the vendored protocol JSON |
 | `samples/agito-samples` | Example page object and tests, ported from Motus.Samples |
@@ -177,8 +184,8 @@ Variables: `AGITO_HEADLESS`, `AGITO_CHANNEL`, `AGITO_SLOWMO`, `AGITO_LAUNCH_TIME
 
 ```bash
 cargo test --workspace                     # unit tests, no browser needed
-cargo test -p agito -p agito-samples \
-  --features agito/integration,agito-samples/integration   # drives a real Chrome/Chromium
+cargo test -p agito -p agito-samples -p agito-cli \
+  --features agito/integration,agito-samples/integration,agito-cli/integration   # drives a real Chrome/Chromium
 cargo xtask codegen [--check]              # regenerate (or verify) the CDP bindings
 cargo run -p agito --example screenshot -- https://example.com shot.png
 ```

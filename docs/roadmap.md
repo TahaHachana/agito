@@ -90,7 +90,7 @@ crates/
   agito/            the engine: transport, launch, browser/context/page/frame, locator,
                     selectors, input, network, files, plugins, expect, config, harness
   agito-macros/     #[agito::test], #[agito::plugin]
-  agito-cli/        the `agito` binary: install
+  agito-cli/        the `agito` binary: install, screenshot, pdf
 samples/
   agito-samples/    page objects and tests ported from Motus.Samples
 xtask/              cargo xtask codegen [--check]
@@ -113,7 +113,7 @@ planned. That way the attribute can be used as `#[agito::test]`.
 | 4 | `expect`, `#[agito::test]`, samples | Done; smaller gaps remain |
 | 5 | Firefox over WebDriver BiDi | Next major engine phase |
 | 6 | Accessibility, performance, coverage, tracing, video | Not started |
-| 7 | CLI | In progress: `install` done |
+| 7 | CLI | In progress: `install`, `screenshot`, `pdf` done |
 | 8 | Recorder, codegen, check-selectors | Not started |
 | 9 | MCP server | Not started |
 | 10 | Visual runner | Not started |
@@ -164,7 +164,7 @@ and downloads are unreleased.
 - **`install`:** done for Chrome for Testing. `--revision` takes a version, milestone,
   Chromium revision or channel. It writes the `~/.agito/browsers` markers the launcher reads.
   Installing Firefox comes with phase 5.
-- **`screenshot` and `pdf`.**
+- **`screenshot` and `pdf`:** done.
 - **`update-protocol`:** fetches the new protocol JSON, regenerates the bindings and shows a
   diff.
 - **`run [cargo test args]`:**
@@ -219,8 +219,8 @@ and downloads are unreleased.
 - **Integration tests** drive a real Chrome or Chromium behind the `integration` feature:
 
   ```
-  cargo test -p agito -p agito-samples \
-    --features agito/integration,agito-samples/integration
+  cargo test -p agito -p agito-samples -p agito-cli \
+    --features agito/integration,agito-samples/integration,agito-cli/integration
   ```
 
   Pages come from `set_content`, `data:` URLs, and a small local HTTP server in

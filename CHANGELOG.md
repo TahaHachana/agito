@@ -8,6 +8,11 @@
   configuration. `--revision` picks the build by version (`131.0.6778.85`), milestone
   (`131`), Chromium revision (`1368529`) or channel (`stable`, `beta`, `dev`, `canary`).
   `--path` installs elsewhere.
+- `agito screenshot` and `agito pdf` capture a page in a fresh headless browser. They take a
+  URL, a local HTML file or a bare host name, with `--wait-until`, `--timeout`, `--delay` and
+  `--hide-banners`. Screenshots pick PNG, JPEG or WebP from the output's extension and take
+  `--full-page`, `--width`, `--height` and `--quality`. PDFs take `--width`, `--landscape` and
+  `--background`.
 - Uploads:
   - `locator.set_input_files` takes paths or in-memory `FilePayload`s, works on hidden
     inputs, and clears the input when given `InputFiles::none()`.

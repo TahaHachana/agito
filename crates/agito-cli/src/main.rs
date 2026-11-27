@@ -1,5 +1,6 @@
 //! The `agito` command-line tool.
 
+mod capture;
 mod install;
 
 use std::path::PathBuf;
@@ -25,6 +26,10 @@ struct Cli {
 enum Command {
     /// Download a browser for agito to launch.
     Install(InstallArgs),
+    /// Save a screenshot of a page.
+    Screenshot(capture::ScreenshotArgs),
+    /// Save a page as a PDF.
+    Pdf(capture::PdfArgs),
 }
 
 #[derive(Args)]
@@ -50,6 +55,8 @@ async fn main() -> ExitCode {
     let cli = Cli::parse();
     let outcome = match cli.command {
         Command::Install(args) => run_install(args).await,
+        Command::Screenshot(args) => capture::screenshot(args).await,
+        Command::Pdf(args) => capture::pdf(args).await,
     };
     match outcome {
         Ok(()) => ExitCode::SUCCESS,
