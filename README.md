@@ -6,7 +6,7 @@ with no driver process or Node.js sidecar in between. Its own selector strategie
 registered through the same plugin API third-party code uses.
 
 agito is a Rust port of Motus, a .NET browser automation framework. It is early (0.2):
-Chromium-based browsers only, with no network interception yet. See
+Chromium-based browsers only. See
 [docs/parity.md](https://github.com/TahaHachana/agito/blob/main/docs/parity.md) for what
 has been ported so far.
 
@@ -58,6 +58,35 @@ for frame in page.frames() {
 let ads = page.frame("ads").unwrap();
 let title: String = ads.evaluate("document.title").await?;
 ```
+
+## Network
+
+```rust
+use agito::FulfillOptions;
+use serde_json::json;
+
+// Mock an API: matching requests never reach the network.
+page.route("**/api/user", |route| async move {
+    let _ = route.fulfill(FulfillOptions::json(&json!({ "name": "Ada" }))).await;
+}).await?;
+
+// Wait for a response triggered by an action. The waiter listens from the moment it is
+// created, so create it first.
+let response = page.wait_for_response("**/api/search*", None);
+page.get_by_role("button", Some("Search")).click().await?;
+let results: serde_json::Value = response.await?.json().await?;
+
+page.on_request(|r| println!("{} {}", r.method(), r.url()));
+page.wait_for_network_idle(std::time::Duration::from_millis(500), None).await?;
+
+page.start_har();
+// ...
+page.stop_har_to("session.har")?;
+```
+
+Routes can also be set on a `BrowserContext`, where they apply to every page in it. A route
+can fulfill a request, continue it (optionally changing the URL, method, headers or body), or
+abort it. A handler that does none of these lets the request through unchanged.
 
 ## Scripts
 

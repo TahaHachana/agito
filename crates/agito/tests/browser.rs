@@ -26,7 +26,7 @@ async fn goto_returns_the_document_response(page: Page) -> agito::Result<()> {
         .await?
         .expect("http navigation has a response");
     expect(&ok).to_be_ok()?;
-    assert_eq!(ok.headers.get("x-agito").map(String::as_str), Some("yes"));
+    assert_eq!(ok.header("X-Agito"), Some("yes"));
     let gone = page.goto(&format!("{base}/gone")).await?.unwrap();
     expect(&gone).to_have_status(410)?;
     expect(&page).to_have_url(format!("{base}/gone")).await?;
@@ -427,5 +427,35 @@ fn small_viewport() -> agito::ContextOptions {
 async fn context_options_apply(page: Page) -> agito::Result<()> {
     let width: u32 = page.evaluate("window.innerWidth").await?;
     assert_eq!(width, 400);
+    Ok(())
+}
+
+#[agito::test]
+async fn evaluate_into_unit_discards_the_result(page: Page) -> agito::Result<()> {
+    page.evaluate::<()>("document.title = 'changed'").await?;
+    page.evaluate::<()>("42").await?;
+    assert_eq!(page.title().await?, "changed");
+    Ok(())
+}
+
+#[agito::test]
+async fn opening_another_page_does_not_stall_this_one(
+    context: BrowserContext,
+    page: Page,
+) -> agito::Result<()> {
+    page.set_content("<button onclick=\"this.textContent='ok'\">go</button>")
+        .await?;
+    let other = context.new_page().await?;
+    other.set_content("<p>other</p>").await?;
+    let started = std::time::Instant::now();
+    page.locator("button").click().await?;
+    expect(&page.locator("button")).to_have_text("ok").await?;
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "took {:?}",
+        started.elapsed()
+    );
+    let visible: String = page.evaluate("document.visibilityState").await?;
+    assert_eq!(visible, "visible");
     Ok(())
 }
