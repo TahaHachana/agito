@@ -33,7 +33,7 @@ tracing = { workspace = true }
 base64 = "0.23"
 regex = "1"
 inventory = "0.3"
-agito-macros = { path = "../agito-macros", version = "0.2.0" }
+agito-macros = { path = "../agito-macros", version = "0.3.0" }
 
 [dev-dependencies]
 agito = { path = ".", features = ["testing"] }

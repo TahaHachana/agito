@@ -1,6 +1,21 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-11-27)
+
+The first release of the `agito` command-line tool (`agito-cli`) and of
+[the agito book](https://tahahachana.github.io/agito/).
+
+### Breaking changes
+
+Found with `cargo semver-checks` against 0.2.0:
+
+- `agito-protocol` follows a newer `devtools-protocol` (see Changed): some types, fields and
+  enum variants Chrome removed are gone, protocol structs gained fields, and enums gained
+  variants. Build protocol structs with `..Default::default()` to stay clear of new fields.
+- `agito::transport::TransportError` has a new variant, `SessionClosed`, for a command whose
+  page closed before the browser answered.
+- `agito::harness::TestOptions` has a new field, `quarantine`. `#[agito::test]` fills it in;
+  only code building `TestOptions` by hand needs to set it.
 
 ### Added
 - The agito book (`book/`), published to GitHub Pages: how agito is built, a guide to
@@ -33,8 +48,8 @@
   (`agito::harness::TestRecord`): duration, attempts, message, screenshot and quarantine.
 - `cargo xtask update-protocol [--version <npm version>] [--dry-run]` vendors a
   `devtools-protocol` release, shows what changed, regenerates the bindings and checks that
-  the workspace builds. `crates/agito-protocol/protocol/VERSION` records the vendored release
-  (0.0.1596832).
+  the workspace builds. `crates/agito-protocol/protocol/VERSION` records the vendored
+  release.
 - Uploads:
   - `locator.set_input_files` takes paths or in-memory `FilePayload`s, works on hidden
     inputs, and clears the input when given `InputFiles::none()`.

@@ -8,7 +8,7 @@ registered through the same plugin API third-party code uses.
 **[Read the book](https://tahahachana.github.io/agito/)** for a guide to how agito is built
 and how to use it, and [docs.rs](https://docs.rs/agito) for the API reference.
 
-agito is a Rust port of Motus, a .NET browser automation framework. It is early (0.2):
+agito is a Rust port of Motus, a .NET browser automation framework. It is early (0.3):
 Chromium-based browsers only. See
 [docs/parity.md](https://github.com/TahaHachana/agito/blob/main/docs/parity.md) for what
 has been ported so far and [docs/roadmap.md](https://github.com/TahaHachana/agito/blob/main/docs/roadmap.md)

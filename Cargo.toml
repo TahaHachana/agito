@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*", "samples/*", "xtask"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/TahaHachana/agito"
@@ -11,8 +11,8 @@ homepage = "https://tahahachana.github.io/agito/"
 rust-version = "1.88"
 
 [workspace.dependencies]
-agito-protocol = { path = "crates/agito-protocol", version = "0.2.0" }
-agito = { path = "crates/agito", version = "0.2.0" }
+agito-protocol = { path = "crates/agito-protocol", version = "0.3.0" }
+agito = { path = "crates/agito", version = "0.3.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
