@@ -24,6 +24,7 @@ pub fn html(body: &str) -> String {
 ///
 /// Conventions for network tests:
 /// - a body starting `REDIRECT:` answers with a `Location` header pointing at the rest;
+/// - a body `ATTACHMENT:<name>:<body>` is served as a download named `<name>`;
 /// - a path containing `/slow` answers after 400ms;
 /// - `/echo` answers with JSON describing the request (method, path, body);
 /// - a body starting `{` or `[` is served as JSON, anything else as HTML.
@@ -71,14 +72,23 @@ pub async fn serve(routes: &[(&str, u16, &str)]) -> String {
                         .unwrap_or((404, "<h1>not found</h1>".into()))
                 };
                 let mut extra = String::new();
-                let content = match content.strip_prefix("REDIRECT:") {
-                    Some(location) => {
-                        extra.push_str(&format!("Location: {location}\r\n"));
-                        String::new()
-                    }
-                    None => content,
+                let content = if let Some(location) = content.strip_prefix("REDIRECT:") {
+                    extra.push_str(&format!("Location: {location}\r\n"));
+                    String::new()
+                } else if let Some(rest) = content.strip_prefix("ATTACHMENT:") {
+                    // ATTACHMENT:<file name>:<body> is served as a download.
+                    let (name, body) = rest.split_once(':').unwrap_or((rest, ""));
+                    extra.push_str(&format!(
+                        "Content-Disposition: attachment; filename=\"{name}\"\r\n"
+                    ));
+                    body.to_owned()
+                } else {
+                    content
                 };
-                let content_type = if content.starts_with('{') || content.starts_with('[') {
+                let content_type = if !extra.is_empty() && extra.starts_with("Content-Disposition")
+                {
+                    "text/csv"
+                } else if content.starts_with('{') || content.starts_with('[') {
                     "application/json"
                 } else {
                     "text/html; charset=utf-8"

@@ -719,6 +719,54 @@ impl Locator {
         .await
     }
 
+    /// Puts files into this `<input type=file>`, firing `input` and `change`. Takes paths on
+    /// disk or in-memory [`FilePayload`](crate::files::FilePayload)s; an empty list clears the
+    /// input. The input may be hidden, as styled upload buttons usually hide it.
+    pub async fn set_input_files(&self, files: impl Into<crate::files::InputFiles>) -> Result<()> {
+        let files = files.into();
+        self.run_action("setInputFiles", async {
+            let handle = self.wait_actionable(ATTACHED, self.action_timeout()).await?;
+            let (is_file_input, multiple): (bool, bool) = self
+                .eval_tuple(
+                    &handle,
+                    "function() { return [this.tagName === 'INPUT' && this.type === 'file', !!this.multiple]; }",
+                )
+                .await?;
+            if !is_file_input {
+                return Err(Error::invalid_argument(format!(
+                    "'{}' is not an <input type=file>.",
+                    self.description()
+                )));
+            }
+            let count = match &files {
+                crate::files::InputFiles::Paths(p) => p.len(),
+                crate::files::InputFiles::Payloads(p) => p.len(),
+            };
+            if count > 1 && !multiple {
+                return Err(Error::invalid_argument(format!(
+                    "'{}' accepts a single file; add the `multiple` attribute to accept {count}.",
+                    self.description()
+                )));
+            }
+            let paths = crate::files::materialize(files.clone(), || self.page.upload_dir())?;
+            crate::files::set_input_files(
+                &handle.session,
+                crate::files::FileInputTarget::Object(handle.object_id().to_owned()),
+                paths,
+            )
+            .await
+        })
+        .await
+    }
+
+    async fn eval_tuple<T: serde::de::DeserializeOwned>(
+        &self,
+        handle: &ElementHandle,
+        function: &str,
+    ) -> Result<T> {
+        self.eval(handle, function, &[]).await
+    }
+
     /// Scrolls the element into view if it is not.
     pub async fn scroll_into_view(&self) -> Result<()> {
         let handle = self

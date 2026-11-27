@@ -18,6 +18,7 @@ use tokio::task::JoinHandle;
 
 use crate::context::{BrowserContext, Viewport};
 use crate::error::{Error, ErrorKind, Result};
+use crate::files::{Download, FileChooser};
 use crate::frame::{Frame, FrameLocator};
 use crate::input::{Keyboard, Mouse};
 use crate::locator::Locator;
@@ -220,6 +221,8 @@ type DialogHandler = Arc<dyn Fn(Dialog) -> BoxFuture + Send + Sync>;
 type ConsoleHandler = Arc<dyn Fn(&ConsoleMessage) + Send + Sync>;
 type ErrorHandler = Arc<dyn Fn(&str) + Send + Sync>;
 type PageHandler = Arc<dyn Fn(&Page) + Send + Sync>;
+type FileChooserHandler = Arc<dyn Fn(FileChooser) -> BoxFuture + Send + Sync>;
+type DownloadHandler = Arc<dyn Fn(&Download) + Send + Sync>;
 type RequestHandler = Arc<dyn Fn(&Request) + Send + Sync>;
 type ResponseHandler = Arc<dyn Fn(&Response) + Send + Sync>;
 
@@ -252,6 +255,10 @@ pub(crate) enum PageEvent {
     },
     /// This page opened another one.
     Popup(Page),
+    /// A file input asked for files.
+    FileChooser(FileChooser),
+    /// The page started a download.
+    Download(Download),
     Closed,
 }
 
@@ -355,6 +362,10 @@ pub(crate) struct PageInner {
     dialog_handlers: Mutex<Vec<DialogHandler>>,
     network_handlers: Mutex<NetworkHandlers>,
     popup_handlers: Mutex<Vec<PageHandler>>,
+    file_chooser_handlers: Mutex<Vec<FileChooserHandler>>,
+    download_handlers: Mutex<Vec<DownloadHandler>>,
+    /// Where in-memory uploads are written; removed with the page.
+    upload_dir: Mutex<Option<std::path::PathBuf>>,
     opener: Option<Weak<PageInner>>,
     pub(crate) network: Mutex<NetworkState>,
     pub(crate) network_events: broadcast::Sender<NetworkEvent>,
@@ -380,6 +391,15 @@ impl PageInner {
 
     pub(crate) fn is_closed(&self) -> bool {
         self.closed.load(Ordering::SeqCst)
+    }
+
+    /// Tells handlers and waiters that this page started `download`.
+    pub(crate) fn notify_download(&self, download: &Download) {
+        let handlers = self.download_handlers.lock().unwrap().clone();
+        for handler in handlers {
+            handler(download);
+        }
+        let _ = self.events.send(PageEvent::Download(download.clone()));
     }
 
     /// Tells handlers and waiters that this page opened `popup`.
@@ -421,6 +441,9 @@ impl PageInner {
 
 impl Drop for PageInner {
     fn drop(&mut self) {
+        if let Some(dir) = self.upload_dir.get_mut().unwrap().take() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
         for pump in self.pumps.get_mut().unwrap().drain(..) {
             pump.abort();
         }
@@ -446,6 +469,7 @@ const PAGE_EVENTS: &[&str] = &[
     "Fetch.requestPaused",
     "Target.attachedToTarget",
     "Target.detachedFromTarget",
+    "Page.fileChooserOpened",
     "Inspector.targetCrashed",
 ];
 
@@ -479,6 +503,9 @@ impl Page {
             dialog_handlers: Mutex::new(Vec::new()),
             network_handlers: Mutex::new(NetworkHandlers::default()),
             popup_handlers: Mutex::new(Vec::new()),
+            file_chooser_handlers: Mutex::new(Vec::new()),
+            download_handlers: Mutex::new(Vec::new()),
+            upload_dir: Mutex::new(None),
             opener: opener.map(|o| Arc::downgrade(&o.inner)),
             network: Mutex::new(NetworkState::default()),
             network_events: broadcast::channel(4096).0,
@@ -524,6 +551,15 @@ impl Page {
             ),
             step(s, runtime::EnableParams::default()),
             step(s, network::EnableParams::default()),
+            // File inputs report to agito instead of opening a native picker (which, in a
+            // headed browser, would block until a person answered it).
+            step(
+                s,
+                cdp_page::SetInterceptFileChooserDialogParams {
+                    enabled: true,
+                    cancel: None,
+                },
+            ),
         ];
         if let Some(viewport) = options.viewport {
             batch.push(step(s, viewport_params(viewport)));
@@ -1077,6 +1113,119 @@ impl Page {
         match result {
             Err(e) if !e.is_browser_lost() => Err(e),
             _ => Ok(()),
+        }
+    }
+
+    /// The directory in-memory uploads are written to, created on first use.
+    pub(crate) fn upload_dir(&self) -> Result<std::path::PathBuf> {
+        let mut dir = self.inner.upload_dir.lock().unwrap();
+        if let Some(d) = &*dir {
+            return Ok(d.clone());
+        }
+        let d = crate::files::temp_dir("upload")?;
+        *dir = Some(d.clone());
+        Ok(d)
+    }
+
+    /// Handles file pickers the page opens. The handler should answer with
+    /// [`FileChooser::set_files`]; a chooser nobody answers stays empty.
+    pub fn on_file_chooser<F, Fut>(&self, handler: F)
+    where
+        F: Fn(FileChooser) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        self.inner
+            .file_chooser_handlers
+            .lock()
+            .unwrap()
+            .push(Arc::new(move |c| Box::pin(handler(c))));
+    }
+
+    /// Waits for the page to open a file picker. Starts listening as soon as it is called,
+    /// so create it before the click that opens the picker:
+    ///
+    /// ```no_run
+    /// # async fn demo(page: agito::Page) -> agito::Result<()> {
+    /// let chooser = page.wait_for_file_chooser(None);
+    /// page.get_by_text("Upload").click().await?;
+    /// chooser.await?.set_files("report.pdf").await?;
+    /// # Ok(()) }
+    /// ```
+    pub fn wait_for_file_chooser(
+        &self,
+        timeout: Option<Duration>,
+    ) -> impl Future<Output = Result<FileChooser>> + Send + 'static {
+        self.page_event_waiter(timeout, "file chooser", |e| match e {
+            PageEvent::FileChooser(c) => Some(c.clone()),
+            _ => None,
+        })
+    }
+
+    /// Calls `handler` for every download the page starts.
+    pub fn on_download(&self, handler: impl Fn(&Download) + Send + Sync + 'static) {
+        self.inner
+            .download_handlers
+            .lock()
+            .unwrap()
+            .push(Arc::new(handler));
+    }
+
+    /// Waits for the page to start a download. Starts listening as soon as it is called, so
+    /// create it before the action that downloads:
+    ///
+    /// ```no_run
+    /// # async fn demo(page: agito::Page) -> agito::Result<()> {
+    /// let download = page.wait_for_download(None);
+    /// page.get_by_text("Export CSV").click().await?;
+    /// download.await?.save_as("export.csv").await?;
+    /// # Ok(()) }
+    /// ```
+    pub fn wait_for_download(
+        &self,
+        timeout: Option<Duration>,
+    ) -> impl Future<Output = Result<Download>> + Send + 'static {
+        self.page_event_waiter(timeout, "download", |e| match e {
+            PageEvent::Download(d) => Some(d.clone()),
+            _ => None,
+        })
+    }
+
+    fn page_event_waiter<T: Send + 'static>(
+        &self,
+        timeout: Option<Duration>,
+        what: &'static str,
+        pick: impl Fn(&PageEvent) -> Option<T> + Send + Sync + 'static,
+    ) -> impl Future<Output = Result<T>> + Send + 'static {
+        let mut events = self.inner.events.subscribe();
+        let timeout = timeout.unwrap_or(self.inner.context.options().navigation_timeout);
+        let page = self.clone();
+        async move {
+            let wait = async {
+                loop {
+                    match events.recv().await {
+                        Ok(PageEvent::Closed) | Err(broadcast::error::RecvError::Closed) => {
+                            return Err(page.closed_error());
+                        }
+                        Ok(e) => {
+                            if let Some(found) = pick(&e) {
+                                return Ok(found);
+                            }
+                        }
+                        Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    }
+                }
+            };
+            tokio::time::timeout(timeout, wait)
+                .await
+                .unwrap_or_else(|_| {
+                    Err(ErrorKind::WaitTimeout {
+                        condition: what.into(),
+                        timeout,
+                        last_evaluated_value: None,
+                        message: format!("No {what} within {}ms.", timeout.as_millis()),
+                    }
+                    .into())
+                })
         }
     }
 
@@ -1938,6 +2087,22 @@ async fn event_pump(
                         tokio::spawn(handler(dialog.clone()));
                     }
                 }
+            }
+            "Page.fileChooserOpened" => {
+                let Some(backend_node_id) = params["backendNodeId"].as_i64() else {
+                    continue;
+                };
+                let chooser = FileChooser::new(
+                    Page::from_inner(inner.clone()),
+                    session.clone(),
+                    backend_node_id,
+                    params["mode"].as_str() == Some("selectMultiple"),
+                );
+                let handlers = inner.file_chooser_handlers.lock().unwrap().clone();
+                for handler in handlers {
+                    tokio::spawn(handler(chooser.clone()));
+                }
+                let _ = inner.events.send(PageEvent::FileChooser(chooser));
             }
             "Inspector.targetCrashed" if child.is_none() => inner.mark_closed(),
             _ => {}

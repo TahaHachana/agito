@@ -102,6 +102,19 @@ Pages opened by pages, from `window.open` or `target=_blank` links, get the cont
 viewport, init scripts and routes before they run. `context.on_page` and
 `context.wait_for_page` see every new page in a context.
 
+## Files
+
+```rust
+use agito::FilePayload;
+
+page.locator("input[type=file]").set_input_files(["report.pdf"]).await?;
+page.locator("#avatar").set_input_files(FilePayload::new("me.png", png_bytes)).await?;
+
+let download = page.wait_for_download(None);
+page.get_by_text("Export CSV").click().await?;
+download.await?.save_as("export.csv").await?;
+```
+
 ## Scripts
 
 ```rust
