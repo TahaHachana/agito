@@ -12,8 +12,9 @@ use syn::{Expr, FnArg, ItemFn, ItemStruct, Lit, Meta, Pat, Token, Type, parse_ma
 /// fresh context and page in a browser shared by the test binary. Return `()` or a
 /// `Result<(), E>`; a test that fails because the browser was lost is re-run.
 ///
-/// Options: `retries = N` (re-runs after a lost browser, default 1) and
-/// `context = path::to_fn` (a `fn() -> agito::ContextOptions`).
+/// Options: `retries = N` (re-runs after a lost browser, default 1),
+/// `context = path::to_fn` (a `fn() -> agito::ContextOptions`), and
+/// `quarantine = "reason"` (the test runs, but its failure is reported rather than failing).
 #[proc_macro_attribute]
 pub fn test(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemFn);
@@ -36,11 +37,12 @@ fn expand_test(
     let args = Punctuated::<Meta, Token![,]>::parse_terminated.parse2(attr)?;
     let mut retries = quote! { 1u32 };
     let mut context = quote! { ::agito::ContextOptions::default };
+    let mut quarantine = quote! { ::core::option::Option::None };
     for arg in args {
         let Meta::NameValue(nv) = &arg else {
             return Err(syn::Error::new_spanned(
                 arg,
-                "expected `retries = N` or `context = path`",
+                "expected `retries = N`, `context = path` or `quarantine = \"reason\"`",
             ));
         };
         if nv.path.is_ident("retries") {
@@ -54,10 +56,23 @@ fn expand_test(
         } else if nv.path.is_ident("context") {
             let value = &nv.value;
             context = quote! { #value };
+        } else if nv.path.is_ident("quarantine") {
+            match &nv.value {
+                Expr::Lit(lit) if matches!(lit.lit, Lit::Str(_)) => {
+                    let reason = &lit.lit;
+                    quarantine = quote! { ::core::option::Option::Some(#reason) };
+                }
+                other => {
+                    return Err(syn::Error::new_spanned(
+                        other,
+                        "quarantine takes the reason as a string",
+                    ));
+                }
+            }
         } else {
             return Err(syn::Error::new_spanned(
                 &nv.path,
-                "unknown option; expected `retries` or `context`",
+                "unknown option; expected `retries`, `context` or `quarantine`",
             ));
         }
     }
@@ -101,7 +116,11 @@ fn expand_test(
             #inner
             ::agito::harness::run(
                 concat!(module_path!(), "::", stringify!(#name)),
-                ::agito::harness::TestOptions { retries: #retries, context: #context },
+                ::agito::harness::TestOptions {
+                    retries: #retries,
+                    context: #context,
+                    quarantine: #quarantine,
+                },
                 |__agito_fixtures: ::agito::harness::Fixtures| async move {
                     #(#bindings)*
                     __agito_test_body(#(#call_args),*).await

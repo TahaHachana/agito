@@ -13,6 +13,17 @@
   `--hide-banners`. Screenshots pick PNG, JPEG or WebP from the output's extension and take
   `--full-page`, `--width`, `--height` and `--quality`. PDFs take `--width`, `--landscape` and
   `--background`.
+- `agito run` builds the tests with cargo and runs each test binary itself. It reports plain
+  `#[test]`s and `#[agito::test]`s alike, with `--shard`, `--workers`, `--retries` (a pass
+  on a retry is reported as flaky), `--fail-on-flaky`, `--quarantine <file>`,
+  `--flaky-history`, and JUnit and HTML reports. A crashed binary's unfinished tests are
+  re-run alone to find the one that crashed.
+- `agito shard merge` combines the JUnit reports of a sharded run into one summary and report
+  (JUnit or HTML). `--expect N` fails the merge when a shard is missing or appears twice.
+- `#[agito::test(quarantine = "reason")]`: the test runs, but a failure is reported rather
+  than failing it.
+- With `AGITO_RESULTS_DIR` set, each `#[agito::test]` writes a JSON record of its outcome
+  (`agito::harness::TestRecord`): duration, attempts, message, screenshot and quarantine.
 - `cargo xtask update-protocol [--version <npm version>] [--dry-run]` vendors a
   `devtools-protocol` release, shows what changed, regenerates the bindings and checks that
   the workspace builds. `crates/agito-protocol/protocol/VERSION` records the vendored release
@@ -45,6 +56,11 @@
   detached.
 
 ### Fixed
+- `#[agito::test]` re-runs a test whose browser went away during it, however the test
+  failed. Before, only a test that returned the browser-lost error was re-run: one that
+  asserted on an error it expected (`unwrap_err()` on a click meant to time out) saw the
+  disconnect instead and panicked, which failed it. Chrome itself sometimes crashes during a
+  run (seen with Chrome for Testing 158), which made `actionability_failures_say_why` flaky.
 - A command still waiting for its answer when its page closed waited out the full 60s
   command timeout, because Chrome does not answer commands on a target it is destroying. A
   click on a button that closes its own window sometimes did this. Such commands now fail at

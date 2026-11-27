@@ -5,14 +5,16 @@ Motus drives Chromium over the Chrome DevTools Protocol (CDP) and Firefox over W
 with no driver process in between. Every built-in feature (selector strategies, lifecycle
 hooks, wait conditions, reporters) registers through the same plugin API third parties use.
 
-The goal is a full-parity port, delivered in phases, written as idiomatic Rust rather than
-translated line by line. This document records the decisions and the order of work.
+The goal is a port written as idiomatic Rust rather than translated line by line, delivered
+in phases. Parity with Motus is the destination, but the order of work puts first what makes
+agito usable by others. This document records the decisions and that order.
 [parity.md](parity.md) tracks the details: what maps to what, known gaps, and deliberate
 behavior differences.
 
 ## Decisions
 
-- **Scope:** full parity, in phases. Each phase ends green in CI.
+- **Scope:** parity in phases, ordered by what makes agito usable by others rather than by
+  phase number (see [Order of work](#order-of-work)). Each phase ends green in CI.
 - **Test integration:** an `#[agito::test]` attribute that runs under plain `cargo test`. The
   Motus MSTest, NUnit and xUnit adapters are not ported.
 - **Analyzers:** the Roslyn analyzers are not ported. Rust covers the important ones:
@@ -21,7 +23,9 @@ behavior differences.
   - Dropping the last `Browser` handle kills a browser agito launched (MOT004).
   - The rest (fixed sleeps, fragile selectors, legacy prefixes, unwaited navigations) are
     documentation, or a later optional lint.
-- **Protocols:** CDP and BiDi, as in Motus. Chromium first; Firefox is phase 5.
+- **Protocols:** CDP for Chromium browsers. Firefox over WebDriver BiDi (phase 5) is deferred
+  until there is demand for it; see [Phase 5](#phase-5-firefox--webdriver-bidi-deferred) for
+  why.
 - **Recorder and codegen output:** Rust code.
 - **Configuration:** agito's own names only: `agito.config.json` and `AGITO_*` variables, with
   no fallback to Motus's files.
@@ -31,8 +35,8 @@ behavior differences.
 ## Architecture as built
 
 1. **CDP is the internal language.** The engine speaks CDP method names through a `Session`
-   trait: `send_raw`, plus a typed `send` and `subscribe` on `dyn Session`. Firefox will plug
-   in behind the same trait through a CDP-to-BiDi translation layer, as in Motus.
+   trait: `send_raw`, plus a typed `send` and `subscribe` on `dyn Session`. Firefox, when it
+   comes, plugs in behind the same trait through a CDP-to-BiDi translation layer, as in Motus.
    `Capabilities` plus `capabilities::require*` give clear errors for features a transport
    lacks.
 2. **Generated protocol types are actually used.** `cargo xtask codegen` turns the vendored
@@ -92,7 +96,7 @@ crates/
   agito/            the engine: transport, launch, browser/context/page/frame, locator,
                     selectors, input, network, files, plugins, expect, config, harness
   agito-macros/     #[agito::test], #[agito::plugin]
-  agito-cli/        the `agito` binary: install, screenshot, pdf
+  agito-cli/        the `agito` binary: install, screenshot, pdf, run, shard merge
 samples/
   agito-samples/    page objects and tests ported from Motus.Samples
 xtask/              cargo xtask codegen [--check], cargo xtask update-protocol
@@ -113,17 +117,42 @@ planned. That way the attribute can be used as `#[agito::test]`.
 | 2 | Launch and connect, browser/context/page, frames, input, handles, config | Done for Chromium |
 | 3 | Plugins, selectors, locators, network/routing/HAR, dialogs, popups, uploads, downloads | Done |
 | 4 | `expect`, `#[agito::test]`, samples | Done; smaller gaps remain |
-| 5 | Firefox over WebDriver BiDi | Next major engine phase |
+| 5 | Firefox over WebDriver BiDi | Deferred until there is demand |
 | 6 | Accessibility, performance, coverage, tracing, video | Not started |
-| 7 | CLI | In progress: `install`, `screenshot`, `pdf`, `update-protocol` done |
+| 7 | CLI | Done; `run` settings in `agito.config.json` left |
 | 8 | Recorder, codegen, check-selectors | Not started |
 | 9 | MCP server | Not started |
 | 10 | Visual runner | Not started |
 
-Releases: 0.1.0 covered phases 0-4 (MVP); 0.2.0 added iframes and network. Popups, uploads
-and downloads are unreleased.
+Releases: 0.1.0 covered phases 0-4 (MVP); 0.2.0 added iframes and network. Popups, uploads,
+downloads, the CLI and the protocol update are unreleased, and go out as 0.3.0.
+
+### Order of work
+
+The priority is making agito usable by others, so the work goes in this order rather than by
+phase number:
+
+1. **Ship 0.3.0.** Merge the CLI work, check that `agito run` and `agito install` pass CI on
+   macOS and Windows (until now they have only run on Linux), and release, including the first
+   `agito-cli`. Run CI's browser tests through `agito run`, so it is exercised on every push
+   and CI gets JUnit results.
+2. **The gaps users hit first,** from [Remaining in phases 1-4](#remaining-in-phases-1-4):
+   storage state (reusing a login), the protocol log, `has` / `has_not` filters, and the role
+   and accessible-name assertions.
+3. **Phase 6's accessibility layer.** Reading the browser's accessibility tree serves three
+   things at once: the role and accessible-name assertions, the accessibility audits behind
+   `agito run --a11y`, and the snapshot format the MCP server reproduces.
+4. **Phase 9, the MCP server,** which lets agents drive a browser through agito.
+5. **The rest of phase 6** (performance, coverage, tracing, video), then phases 8 and 10.
+6. **Phase 5, Firefox,** when someone needs it.
+
+Parked unless CI shows it: Chrome for Testing 158 sometimes crashes during a run (SIGTRAP,
+about once in 50-100 runs of the `browser` test binary). The harness relaunches the browser
+and re-runs the affected tests, at about 10s per crash. What triggers it is not known.
 
 ### Remaining in phases 1-4
+
+The first four items are step 2 of the [order of work](#order-of-work).
 
 - **Protocol log:** an optional file log of all browser traffic (Motus's `ProtocolLog`).
 - **Locators and assertions:** `has` / `has_not` filters, and the accessible-name and role
@@ -134,14 +163,27 @@ and downloads are unreleased.
 - **Browser management:** a browser pool, a heartbeat that notices frozen browsers, and
   signal handlers.
 - **Connecting:** taking over tabs already open in a browser agito connects to.
-- **Harness options:** `launch = fn`, `perf_budget(...)`, `quarantine = "reason"`, and
-  failure tracing.
+- **Harness options:** `launch = fn`, `perf_budget(...)` and failure tracing.
 - **Windows:** killing the shared test browser at process exit.
 
-### Phase 5: Firefox / WebDriver BiDi
+### Phase 5: Firefox / WebDriver BiDi (deferred)
+
+Deferred because Motus's own Firefox support is a basic tier, so porting it costs a lot for
+little. Its BiDi layer (about 2,800 lines) registers 42 CDP commands, 19 of them no-ops, against
+roughly 100 the engine uses, and is tested by 32 integration tests. By Motus's own docs, on
+Firefox:
+
+- `GetByRole` and everything else built on the accessibility tree throws `NotSupported`.
+- `page.Frames` holds only the main frame.
+- MCP snapshots are unavailable, so agents fall back to screenshots and coordinates.
+- Coverage is empty and focus emulation does not apply.
+- Typing presses keys off the US layout one by one, and keys such as CapsLock throw.
+- `motus install --channel firefox` downloads only on Windows.
+
+The plan, when it comes:
 
 - Port `BiDiTransport` and `BiDiSession`.
-- Port the CDP-to-BiDi translation registry (about 25 commands) and the event map.
+- Port the CDP-to-BiDi translation registry (about 23 real translations) and the event map.
 - Port the script-value and key conversions.
 - Port `FirefoxArgs`, the profile manager and the stderr endpoint reader.
 - Port the Firefox-tagged integration tests.
@@ -173,13 +215,26 @@ and downloads are unreleased.
   `devtools-protocol` release from npm, checks its sha512, shows what changed per domain
   (commands, events and types added, removed or redefined), regenerates the bindings and runs
   `cargo check`. `--dry-run` only shows the differences.
-- **`run [cargo test args]`:**
-  - Runs `cargo test` (or nextest) with environment variables the harness honors: results
-    directory, sharding by stable hash, retries, quarantine, accessibility and performance
-    modes.
-  - Aggregates per-test JSON results into console, JUnit, HTML and Cobertura reports.
-  - Tracks flaky history, with `--fail-on-flaky`.
-- **`shard merge`.**
+- **`run`:** first increment done.
+  - It builds with `cargo test --no-run --message-format json`, then runs the test binaries
+    itself, as cargo-nextest does, rather than running `cargo test`. That ties each result
+    to its binary, lets a failed test be re-run alone, and makes a shard an exact list of
+    tests. Binaries run with cargo's working directory, `CARGO_MANIFEST_DIR` and library
+    path. Doctests are not run, as in nextest.
+  - Results come from libtest's output, for every test. `#[agito::test]`s also write a JSON
+    record when `AGITO_RESULTS_DIR` is set, which adds durations, messages, the failure
+    screenshot and quarantine.
+  - When a binary dies, the tests it left unreported are re-run one at a time, so the crash
+    is pinned on the test that caused it.
+  - Done: filters, `--shard`, `--workers`, `--retries` (a pass on a retry is flaky),
+    `--quarantine <file>` and `#[agito::test(quarantine = "reason")]`, `--fail-on-flaky`,
+    `--flaky-history`, and console, JUnit and HTML reports.
+  - Left: Cobertura and coverage, accessibility and performance modes (all phase 6), and
+    `run` settings in `agito.config.json`.
+- **`shard merge`:** done. It merges the shards' JUnit reports by test, checks with
+  `--expect N` that shards 1 to N are each there once, and writes JUnit or HTML. The JUnit
+  report keeps what a merge reads back as properties (shard, quarantine, attempts), and an
+  empty shard writes an empty suite so its shard is on record.
 - Motus's TRX reporter is not ported, since TRX is a .NET format.
 
 ### Phase 8: recorder and codegen
