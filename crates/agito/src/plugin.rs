@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
+use crate::accessibility::AccessibilityRule;
 use crate::error::Result;
 use crate::page::{Page, Response};
 use crate::selectors::{SelectorRegistry, SelectorStrategy, register_builtins};
@@ -102,6 +103,7 @@ pub trait LifecycleHook: Send + Sync + 'static {
 pub struct PluginContext {
     selectors: SelectorRegistry,
     hooks: Vec<Arc<dyn LifecycleHook>>,
+    accessibility_rules: Vec<Arc<dyn AccessibilityRule>>,
 }
 
 impl PluginContext {
@@ -113,6 +115,13 @@ impl PluginContext {
     /// Adds a lifecycle hook.
     pub fn register_lifecycle_hook(&mut self, hook: Arc<dyn LifecycleHook>) {
         self.hooks.push(hook);
+    }
+
+    /// Adds an accessibility rule that every audit runs, replacing a rule with the same id, so
+    /// a plugin can stand in for a built-in rule.
+    pub fn register_accessibility_rule(&mut self, rule: Arc<dyn AccessibilityRule>) {
+        self.accessibility_rules.retain(|r| r.id() != rule.id());
+        self.accessibility_rules.push(rule);
     }
 }
 
@@ -139,11 +148,30 @@ impl Plugin for BuiltinSelectors {
     }
 }
 
+/// The built-in accessibility rules, registered as a plugin would register its own.
+struct BuiltinAccessibilityRules;
+
+const BUILTIN_ACCESSIBILITY_ID: &str = "agito.builtin.accessibility-rules";
+
+#[async_trait]
+impl Plugin for BuiltinAccessibilityRules {
+    fn id(&self) -> &str {
+        BUILTIN_ACCESSIBILITY_ID
+    }
+    async fn on_loaded(&self, context: &mut PluginContext) -> Result<()> {
+        for rule in crate::accessibility::rules::builtin() {
+            context.register_accessibility_rule(rule);
+        }
+        Ok(())
+    }
+}
+
 /// The plugins loaded into one context.
 pub(crate) struct PluginHost {
     loaded: Vec<Arc<dyn Plugin>>,
     selectors: SelectorRegistry,
     hooks: Vec<Arc<dyn LifecycleHook>>,
+    accessibility_rules: Vec<Arc<dyn AccessibilityRule>>,
 }
 
 impl PluginHost {
@@ -151,12 +179,21 @@ impl PluginHost {
         let mut context = PluginContext {
             selectors: SelectorRegistry::default(),
             hooks: Vec::new(),
+            accessibility_rules: Vec::new(),
         };
-        let builtin: Arc<dyn Plugin> = Arc::new(BuiltinSelectors);
+        let builtins: [Arc<dyn Plugin>; 2] = [
+            Arc::new(BuiltinSelectors),
+            Arc::new(BuiltinAccessibilityRules),
+        ];
         // A failing built-in is a bug in agito, so it propagates.
-        builtin.on_loaded(&mut context).await?;
-        let mut loaded = vec![builtin];
-        let mut seen = std::collections::HashSet::from([BUILTIN_SELECTORS_ID.to_owned()]);
+        for builtin in &builtins {
+            builtin.on_loaded(&mut context).await?;
+        }
+        let mut loaded = builtins.to_vec();
+        let mut seen = std::collections::HashSet::from([
+            BUILTIN_SELECTORS_ID.to_owned(),
+            BUILTIN_ACCESSIBILITY_ID.to_owned(),
+        ]);
         let discovered = inventory::iter::<PluginRegistration>
             .into_iter()
             .map(|r| (r.factory)());
@@ -175,6 +212,7 @@ impl PluginHost {
             loaded,
             selectors: context.selectors,
             hooks: context.hooks,
+            accessibility_rules: context.accessibility_rules,
         })
     }
 
@@ -184,6 +222,10 @@ impl PluginHost {
 
     pub fn hooks(&self) -> Vec<Arc<dyn LifecycleHook>> {
         self.hooks.clone()
+    }
+
+    pub fn accessibility_rules(&self) -> Vec<Arc<dyn AccessibilityRule>> {
+        self.accessibility_rules.clone()
     }
 
     pub async fn unload(&self) {
@@ -232,13 +274,16 @@ mod tests {
             Arc::new(Counting("p", count.clone())),
             Arc::new(Counting("p", count.clone())),
             Arc::new(Counting(BUILTIN_SELECTORS_ID, count.clone())),
+            Arc::new(Counting(BUILTIN_ACCESSIBILITY_ID, count.clone())),
             Arc::new(Failing),
         ];
         let host = PluginHost::load(&plugins).await.unwrap();
         assert_eq!(count.load(Ordering::SeqCst), 1);
         assert!(host.selectors().get("css").is_some());
         assert!(host.selectors().get("ROLE").is_some());
-        assert_eq!(host.loaded.len(), 2);
+        // The two built-ins and `p`; the second `p`, the reserved id and the failure are not.
+        assert_eq!(host.loaded.len(), 3);
+        assert_eq!(host.accessibility_rules().len(), 9);
         assert_eq!(host.selectors().by_priority()[0].name(), "data-testid");
     }
 }

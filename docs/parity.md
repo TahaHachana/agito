@@ -12,7 +12,7 @@ run real browser tests.
 | 3 | Plugins, selectors, Locator + actionability, network/routing/HAR, dialogs/downloads/file chooser | Done |
 | 4 | `expect` assertions, `#[agito::test]` harness, samples | MVP done (see gaps) |
 | 5 | Firefox / WebDriver BiDi | Deferred until there is demand ([why](roadmap.md#phase-5-firefox--webdriver-bidi-deferred)) |
-| 6 | Accessibility, performance, coverage, tracing, video | Not started |
+| 6 | Accessibility, performance, coverage, tracing, video | In progress: accessibility audits done; the audit hook next |
 | 7 | CLI (`agito`) | Done; `run` settings in `agito.config.json` left |
 | 8 | Recorder, codegen, check-selectors | Not started |
 | 9 | MCP server | Not started |
@@ -50,6 +50,7 @@ run real browser tests.
 | `motus install` (`BrowserInstaller`) | `agito install` (crate `agito-cli`), writing the markers `launch::finder` reads |
 | `motus run` (`TestRunner`, `TestDiscovery`, `ShardSelector`, console, JUnit and HTML reporters, `FlakeHistoryReporter`), `[Quarantine]` | `agito run` (`crates/agito-cli/src/run`), `#[agito::test(quarantine = "reason")]`, `harness::TestRecord` |
 | `motus shard merge` (`ShardMerger`) | `agito shard merge` |
+| `AccessibilityTreeQuery`, `AccessibilitySnapshotAsync`, the collectors, `ContrastCalculator`, `AccessibilityRuleEngine`, the nine rules, `RunAccessibilityAuditAsync`, `ToPassAccessibilityAuditAsync`, `IAccessibilityRule` | `agito::accessibility`: `page.accessibility_snapshot`, `page.audit_accessibility`, `to_pass_accessibility_audit`, `AccessibilityRule` |
 | `IBrowserContext.StorageStateAsync`, `ContextOptions.StorageState` | `BrowserContext::storage_state`, `set_storage_state`, `ContextOptions::storage_state`, `agito::storage` |
 | `ProtocolLog`, `ProtocolLogOptions`, `ProtocolLogFormatter`, `MOTUS_PROTOCOL_LOG` | `transport::log`, `ProtocolLogOptions`, `AGITO_PROTOCOL_LOG` |
 | `motus update-protocol` (`ProtocolUpdater`, `ProtocolDiffer`) | `cargo xtask update-protocol` |
@@ -157,6 +158,19 @@ run real browser tests.
   - A crashed binary's unreported tests are re-run alone to find the one that crashed.
   - Under plain `cargo test`, a quarantined `#[agito::test]` that fails prints a warning and
     passes.
+- Accessibility audits:
+  - Contrast is judged against the background actually behind the text: the element's and its
+    ancestors' backgrounds, blended over the white canvas. Motus read the element's own
+    `background-color`, and its colour parser dropped the alpha channel, so the transparent
+    default read as black and most text on most pages failed. Text on a background image or
+    gradient is skipped, as is text in a disabled control.
+  - Every frame is audited, cross-origin iframes included; Motus audited the main document
+    only. The page-wide rules (language, main landmark) apply to the top document only.
+  - A rule sees a whole document and returns its violations, so page-wide rules need no
+    first-node trick, and each duplicate id is a violation of its own. Violations carry a CSS
+    selector and their frame's URL; Motus's carried no selector.
+  - A plugin rule with a built-in rule's id replaces it.
+  - The unlabeled-form-control rule also covers `searchbox`.
 - `to_have_role` and `to_have_accessible_name` read the element's own accessibility node.
   Motus took the first node in the element's subtree that the tree does not ignore, so a
   wrapper that is itself ignored reported a descendant's role and name. agito also accepts

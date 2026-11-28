@@ -58,6 +58,7 @@
 
 #![warn(missing_docs)]
 
+pub mod accessibility;
 pub mod browser;
 pub mod config;
 pub mod context;

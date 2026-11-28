@@ -12,6 +12,7 @@ use std::time::Duration;
 use agito::plugin::{LifecycleHook, Plugin, PluginContext};
 use async_trait::async_trait;
 
+use agito::accessibility::AuditOptions;
 use agito::storage::StorageState;
 use agito::{
     Browser, BrowserContext, ColorScheme, ContextOptions, FilePayload, FulfillOptions, Page,
@@ -20,11 +21,13 @@ use agito::{
 use serde_json::json;
 
 const HOME: &str = r#"<!doctype html>
+<html lang="en">
 <title>Demo shop</title>
 <header>
   <h1>Demo shop</h1>
   <nav><a href="/login">Sign in</a> <a href="/orders">Orders</a></nav>
 </header>
+<main>
 <form action="/search">
   <label>Search <input name="q" placeholder="Search products"></label>
   <button>Search</button>
@@ -42,6 +45,7 @@ const HOME: &str = r#"<!doctype html>
 <p><a href="/report" target="_blank">Open report</a>
    <a download="orders.csv" href="data:text/csv,id%2Ctotal%0A1%2C42">Export orders</a></p>
 <label>Avatar <input type="file" id="avatar"></label>
+</main>
 <script>
   const session = localStorage.getItem('session');
   if (session) document.querySelector('#account').textContent = `Signed in as ${session}`;
@@ -54,7 +58,9 @@ const HOME: &str = r#"<!doctype html>
 </script>"#;
 
 const LOGIN: &str = r#"<!doctype html>
+<html lang="en">
 <title>Sign in</title>
+<main>
 <form id="login">
   <label>Email <input type="email" name="email"></label>
   <label>Password <input type="password" name="password"></label>
@@ -66,6 +72,7 @@ const LOGIN: &str = r#"<!doctype html>
   <button>Sign in</button>
 </form>
 <p id="message" role="status"></p>
+</main>
 <script>
   document.querySelector('#login').onsubmit = (event) => {
     event.preventDefault();
@@ -79,9 +86,12 @@ const LOGIN: &str = r#"<!doctype html>
 </script>"#;
 
 const ORDERS: &str = r#"<!doctype html>
+<html lang="en">
 <title>Orders</title>
+<main>
 <h1>Orders</h1>
 <ul id="orders"></ul>
+</main>
 <script>
   fetch('/api/orders').then((r) => r.json()).then((orders) => {
     document.querySelector('#orders').innerHTML =
@@ -90,16 +100,20 @@ const ORDERS: &str = r#"<!doctype html>
 </script>"#;
 
 const CHECKOUT: &str = r#"<!doctype html>
+<html lang="en">
 <title>Checkout</title>
+<main>
 <h1>Checkout</h1>
-<iframe id="payment" src="/payment"></iframe>"#;
+<iframe id="payment" title="Payment" src="/payment"></iframe>
+</main>"#;
 
 const PAYMENT: &str = r#"<!doctype html>
 <label>Card number <input name="card"></label>
 <button onclick="document.querySelector('.status').textContent = 'Paid'">Pay</button>
 <p class="status"></p>"#;
 
-const REPORT: &str = r#"<!doctype html><title>Report</title><h1>Sales report</h1>"#;
+const REPORT: &str =
+    r#"<!doctype html><html lang="en"><title>Report</title><main><h1>Sales report</h1></main>"#;
 
 /// Serves the demo shop to every context in this test binary: the first page a context opens
 /// adds the shop's route to it, so the examples need no setup of their own. A context route
@@ -156,7 +170,7 @@ async fn serve_shop(context: &BrowserContext) -> agito::Result<()> {
                         .map(|p| format!("<li class=\"result\">{p}</li>"))
                         .collect();
                     FulfillOptions::html(format!(
-                        "<!doctype html><title>Search</title><h1>Results for \"{query}\"</h1><ul>{hits}</ul>"
+                        "<!doctype html><html lang=\"en\"><title>Search</title><main><h1>Results for \"{query}\"</h1><ul>{hits}</ul></main>"
                     ))
                 }
                 "/api/orders" => FulfillOptions::json(&json!([{ "id": 1, "total": 42 }])),
@@ -442,6 +456,36 @@ async fn files_and_dialogs(page: Page) -> agito::Result<()> {
     expect(&page.locator("#cart-count"))
         .to_have_text("0")
         .await?;
+    Ok(())
+}
+
+#[agito::test]
+async fn the_shop_is_accessible(page: Page) -> agito::Result<()> {
+    // ANCHOR: accessibility_audit
+    page.goto("https://shop.test/").await?;
+    expect(&page).to_pass_accessibility_audit().await?;
+
+    // The checkout page embeds a payment iframe, which is audited too.
+    page.goto("https://shop.test/checkout").await?;
+    expect(&page.frame_locator("#payment").get_by_label("Card number"))
+        .to_be_visible()
+        .await?;
+    expect(&page).to_pass_accessibility_audit().await?;
+    // ANCHOR_END: accessibility_audit
+
+    // ANCHOR: accessibility_report
+    let result = page.audit_accessibility(&AuditOptions::default()).await?;
+    println!(
+        "{} rules checked {} nodes in {} documents",
+        result.rules.len(),
+        result.nodes,
+        result.documents
+    );
+    for violation in &result.violations {
+        println!("{violation}");
+    }
+    // ANCHOR_END: accessibility_report
+    assert_eq!(result.documents, 2);
     Ok(())
 }
 
