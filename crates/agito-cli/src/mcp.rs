@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use agito::BrowserChannel;
-use agito_mcp::{DialogPolicy, ServerOptions};
+use agito_mcp::{Capability, DialogPolicy, ServerOptions};
 use anyhow::{Result, anyhow, bail};
 use clap::Args;
 
@@ -65,6 +65,11 @@ pub struct McpArgs {
     #[arg(long, value_name = "POLICY", default_value = "ask")]
     dialogs: DialogPolicy,
 
+    /// Optional tool groups to add: coordinates, contexts, routing. Separate them with commas
+    /// or repeat the flag. Outranks AGITO_MCP_CAPS.
+    #[arg(long = "caps", value_name = "GROUPS")]
+    caps: Vec<String>,
+
     /// Let tools open file:// URLs.
     #[arg(long)]
     allow_unrestricted_file_access: bool,
@@ -88,6 +93,14 @@ pub async fn mcp(args: McpArgs) -> Result<()> {
     if args.channel == Some(BrowserChannel::Firefox) {
         bail!("agito mcp drives Chromium-based browsers only: chromium, chrome or edge");
     }
+    // The flag outranks the variable, which is how a client's configuration sets groups
+    // without restating the command.
+    let caps = if args.caps.is_empty() {
+        std::env::var("AGITO_MCP_CAPS").unwrap_or_default()
+    } else {
+        args.caps.join(",")
+    };
+    let capabilities = Capability::parse_list(&caps).map_err(|e| anyhow!("--caps: {e}"))?;
     let options = ServerOptions {
         headless: args.headless,
         channel: args.channel,
@@ -102,6 +115,7 @@ pub async fn mcp(args: McpArgs) -> Result<()> {
         navigation_timeout: args.navigation_timeout.map(Duration::from_millis),
         settle: args.settle.map(Duration::from_millis),
         dialogs: args.dialogs,
+        capabilities,
         allow_unrestricted_file_access: args.allow_unrestricted_file_access,
     };
     agito_mcp::serve_stdio(options)

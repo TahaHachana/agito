@@ -144,6 +144,10 @@ async fn an_agent_reads_a_page_and_acts_on_it_by_ref() {
         .await;
     assert_eq!(evaluated.structured_content, Some(json!({ "result": 2 })));
     let evaluated = h
+        .call("evaluate", json!({ "expression": "const n = 2; n * 3" }))
+        .await;
+    assert_eq!(evaluated.structured_content, Some(json!({ "result": 6 })));
+    let evaluated = h
         .call("evaluate", json!({ "expression": "undefined" }))
         .await;
     assert_eq!(

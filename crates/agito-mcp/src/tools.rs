@@ -17,6 +17,7 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::Mutex;
 
+use crate::caps::Capability;
 use crate::runner::{self, Guarded, Report, Work, describe};
 use crate::session::{Session, SnapshotError, TargetError, frame_order};
 use crate::tab::{Slice, Tab, dialog_pending};
@@ -32,14 +33,23 @@ const SNAPSHOT_AFTER: &str = "Append a snapshot of the page after the action.";
 const SINCE: &str =
     "Return only entries from this sequence number onwards. Omit to read everything the log holds.";
 
+/// A tool each group adds, to tell whether the group is in the catalog already.
+fn group_marker(capability: Capability) -> &'static str {
+    match capability {
+        Capability::Coordinates => "click_xy",
+        Capability::Contexts => "context_create",
+        Capability::Routing => "route_fulfill",
+    }
+}
+
 /// The longest response body `network_request` shows.
 const BODY_LIMIT: usize = 4000;
 
-fn text(message: impl Into<String>) -> CallToolResult {
+pub(crate) fn text(message: impl Into<String>) -> CallToolResult {
     CallToolResult::success(vec![ContentBlock::text(message.into())])
 }
 
-fn error(message: impl Into<String>) -> CallToolResult {
+pub(crate) fn error(message: impl Into<String>) -> CallToolResult {
     CallToolResult::error(vec![ContentBlock::text(message.into())])
 }
 
@@ -54,7 +64,7 @@ fn first_text(result: &CallToolResult) -> &str {
 
 /// Refuses a `file:` URL unless the server allows it: a page could otherwise talk an agent
 /// into reading the machine's files back through a snapshot.
-fn refuse_url(options: &ServerOptions, url: &str) -> Option<String> {
+pub(crate) fn refuse_url(options: &ServerOptions, url: &str) -> Option<String> {
     let scheme = url.split(':').next().unwrap_or_default();
     (!options.allow_unrestricted_file_access && scheme.eq_ignore_ascii_case("file")).then(|| {
         format!(
@@ -88,8 +98,8 @@ fn render_log<T>(slice: Slice<T>, line: impl Fn(u64, &T) -> String, nothing: Str
 /// The `agito mcp` server: one browser session, and the tools that drive it.
 #[derive(Clone)]
 pub struct AgitoServer {
-    options: Arc<ServerOptions>,
-    session: Arc<Mutex<Session>>,
+    pub(crate) options: Arc<ServerOptions>,
+    pub(crate) session: Arc<Mutex<Session>>,
     /// Held for the whole of each tool call, so calls run one at a time. MCP lets a client
     /// send calls without waiting, and agents do issue several at once; run together, a click
     /// could land before the snapshot naming its ref.
@@ -99,12 +109,24 @@ pub struct AgitoServer {
 
 impl AgitoServer {
     /// A server that starts its browser, with `options`, on the first call that needs one.
+    /// It lists the always-available tools, and the groups `options.capabilities` names.
     pub fn new(options: Arc<ServerOptions>) -> Self {
+        let mut tool_router = Self::tool_router();
+        for capability in &options.capabilities {
+            if tool_router.has_route(group_marker(*capability)) {
+                continue;
+            }
+            tool_router += match capability {
+                Capability::Coordinates => Self::coordinate_tools(),
+                Capability::Contexts => Self::context_tools(),
+                Capability::Routing => Self::routing_tools(),
+            };
+        }
         AgitoServer {
             session: Arc::new(Mutex::new(Session::new(options.clone()))),
             calls: Arc::new(Mutex::new(())),
             options,
-            tool_router: Self::tool_router(),
+            tool_router,
         }
     }
 
@@ -117,7 +139,7 @@ impl AgitoServer {
     }
 
     /// The active tab, opened if there is none.
-    async fn tab(&self) -> Result<Tab, CallToolResult> {
+    pub(crate) async fn tab(&self) -> Result<Tab, CallToolResult> {
         self.session
             .lock()
             .await
@@ -128,7 +150,7 @@ impl AgitoServer {
 
     /// The active tab and a locator for `target` on it. A selector is searched in the
     /// selected frame; a ref keeps addressing the document it was read from.
-    async fn target(&self, target: &str) -> Result<(Tab, Locator), CallToolResult> {
+    pub(crate) async fn target(&self, target: &str) -> Result<(Tab, Locator), CallToolResult> {
         if target.trim().is_empty() {
             return Err(error(
                 "ref is required: pass a ref from the latest snapshot or a selector.",
@@ -161,8 +183,12 @@ impl AgitoServer {
             .await
         {
             // Said on every scoped snapshot, since frame_select is often several calls back.
-            Ok((text, Some(frame))) => Ok(format!("Scoped to frame {}\n\n{text}", frame.url())),
-            Ok((text, None)) => Ok(text),
+            Ok((text, Some(frame))) => Ok(format!(
+                "Scoped to frame {}\n\n{}",
+                frame.url(),
+                self.next_step(text)
+            )),
+            Ok((text, None)) => Ok(self.next_step(text)),
             Err(SnapshotError::Target(TargetError::Stale(r))) => Err(format!(
                 "Ref '{r}' is not in the latest snapshot. Take a full snapshot to refresh refs."
             )),
@@ -171,6 +197,24 @@ impl AgitoServer {
             }
             Err(SnapshotError::Browser(e)) => Err(format!("Snapshot failed: {e}")),
         }
+    }
+
+    /// Finishes a snapshot that found nothing addressable with the way forward this server
+    /// offers: what to do next depends on whether the coordinate tools are in the catalog.
+    fn next_step(&self, text: String) -> String {
+        let Some(at) = text.find(crate::session::NOTHING_ADDRESSABLE) else {
+            return text;
+        };
+        let coordinates = self.options.capabilities.contains(&Capability::Coordinates);
+        let next = if coordinates {
+            ", then act on their positions with the coordinate tools: click_xy, drag, or \
+             scroll_xy."
+        } else {
+            ". This server has no tools that act on a position, so nothing on this page can be \
+             clicked until it is restarted with --caps coordinates."
+        };
+        let end = at + crate::session::NOTHING_ADDRESSABLE.len();
+        format!("{}{next}{}", &text[..end], &text[end + 1..])
     }
 
     /// Runs `work`, which reads the page the way snapshot or evaluate do: refused while a
@@ -189,7 +233,7 @@ impl AgitoServer {
 
     /// Runs an action: guarded against dialogs, then reported (what changed), then followed
     /// by a snapshot when one was asked for.
-    async fn act<F>(&self, tab: Tab, snapshot: Option<bool>, work: F) -> CallToolResult
+    pub(crate) async fn act<F>(&self, tab: Tab, snapshot: Option<bool>, work: F) -> CallToolResult
     where
         F: Future<Output = Work> + Send + 'static,
     {
@@ -478,7 +522,7 @@ pub struct AuditArgs {
     min_severity: Option<String>,
 }
 
-fn parse_button(button: Option<&str>) -> Result<MouseButton, CallToolResult> {
+pub(crate) fn parse_button(button: Option<&str>) -> Result<MouseButton, CallToolResult> {
     match button.map(str::to_ascii_lowercase).as_deref() {
         None | Some("left") => Ok(MouseButton::Left),
         Some("right") => Ok(MouseButton::Right),
@@ -489,7 +533,7 @@ fn parse_button(button: Option<&str>) -> Result<MouseButton, CallToolResult> {
     }
 }
 
-fn parse_modifiers(modifiers: &[String]) -> Result<u32, CallToolResult> {
+pub(crate) fn parse_modifiers(modifiers: &[String]) -> Result<u32, CallToolResult> {
     modifiers.iter().try_fold(0, |bits, m| {
         let bit = match m.to_ascii_lowercase().as_str() {
             "alt" => 1,
@@ -976,7 +1020,8 @@ impl AgitoServer {
         description = "Evaluates a JavaScript expression and returns its result as structured \
             JSON under a \"result\" key, so an expression may return a value of any shape: a \
             number, a string, an array, or an object. With no ref it runs in the page, or in the \
-            scoped frame when one is selected; with a ref or a selector the expression must be a \
+            scoped frame when one is selected, and may be statements, whose value is the last \
+            one's; with a ref or a selector the expression must be a \
             function, and runs against that element, passed as its argument. Results that cannot \
             be serialized (undefined, functions, DOM nodes) come back as null.",
         annotations(title = "Evaluate JavaScript", destructive_hint = true)
@@ -1001,9 +1046,23 @@ impl AgitoServer {
             .read(&tab, async move {
                 let value = match locator {
                     None => {
-                        frame
+                        let value = frame
                             .evaluate::<Option<serde_json::Value>>(&expression)
-                            .await
+                            .await;
+                        match value {
+                            // Statements, such as `a = 1; b = 2`, are not an expression: run
+                            // them as a script, whose value is the last statement's.
+                            Err(e) if e.to_string().contains("SyntaxError") => {
+                                let script = serde_json::Value::from(expression.as_str());
+                                frame
+                                    .evaluate::<Option<serde_json::Value>>(&format!(
+                                        "(0, eval)({script})"
+                                    ))
+                                    .await
+                                    .map_err(|_| e)
+                            }
+                            other => other,
+                        }
                     }
                     Some(locator) => {
                         locator

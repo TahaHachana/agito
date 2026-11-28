@@ -7,6 +7,8 @@
 //! refs a snapshot assigns.
 #![warn(missing_docs)]
 
+mod caps;
+mod routes;
 mod runner;
 mod session;
 mod snapshot;
@@ -20,6 +22,7 @@ use std::time::Duration;
 use agito::{BrowserChannel, ContextOptions, LaunchOptions, Viewport};
 use rmcp::ServiceExt;
 
+pub use caps::Capability;
 pub use tab::DialogPolicy;
 pub use tools::AgitoServer;
 
@@ -55,6 +58,8 @@ pub struct ServerOptions {
     pub settle: Option<Duration>,
     /// What becomes of a dialog a page raises. Default: left open for `handle_dialog`.
     pub dialogs: DialogPolicy,
+    /// The optional tool groups to list besides the always-available tools.
+    pub capabilities: Vec<Capability>,
     /// Let tools open `file://` URLs.
     pub allow_unrestricted_file_access: bool,
 }

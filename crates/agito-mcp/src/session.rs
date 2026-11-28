@@ -8,8 +8,13 @@ use agito::accessibility::AxNode;
 use agito::{Browser, BrowserContext, Frame, Locator, Page};
 
 use crate::ServerOptions;
+use crate::routes::RouteTable;
 use crate::snapshot::{self, FrameTree, InlineFrames, RefTarget};
 use crate::tab::Tab;
+
+/// The sentence a snapshot with nothing addressable ends its note with; the server finishes it
+/// with what it offers next.
+pub(crate) const NOTHING_ADDRESSABLE: &str = "Take a screenshot to identify controls visually";
 
 /// How many frames a page snapshot prints inside itself unless asked otherwise.
 pub const DEFAULT_MAX_FRAMES: usize = 10;
@@ -193,11 +198,22 @@ impl PageSnapshot {
         };
         let serialized = snapshot::serialize(&roots, max_depth, frames.as_ref());
         let mut text = serialized.text;
-        if root_ref.is_none() && serialized.refs.is_empty() {
+        // The document itself is focusable, so it always takes a ref; a page with nothing
+        // else addressable still has nothing to act on.
+        let document = roots
+            .iter()
+            .filter(|n| n.role.eq_ignore_ascii_case("RootWebArea"))
+            .find_map(|n| n.backend_node_id);
+        let addressable = serialized
+            .refs
+            .values()
+            .filter(|t| t.frame.is_some() || Some(t.backend_node_id) != document)
+            .count();
+        if root_ref.is_none() && addressable == 0 {
             text = format!(
                 "{}\n\nNote: no addressable elements were found. The page may render to a canvas \
-                 or custom surface that the accessibility tree cannot describe. Take a screenshot \
-                 to identify controls visually.\n",
+                 or custom surface that the accessibility tree cannot describe. \
+                 {NOTHING_ADDRESSABLE}.\n",
                 text.trim_end_matches('\n')
             );
         }
@@ -330,6 +346,8 @@ struct HeldContext {
     tabs: Arc<std::sync::Mutex<Vec<Tab>>>,
     /// The active tab's target id.
     active_page: Option<String>,
+    /// The routing tools' mock rules, which belong to the context, not a tab.
+    routes: Arc<std::sync::Mutex<RouteTable>>,
 }
 
 impl HeldContext {
@@ -342,6 +360,7 @@ impl HeldContext {
             context,
             tabs,
             active_page: None,
+            routes: Arc::default(),
         }
     }
 
@@ -519,6 +538,63 @@ impl Session {
         };
         tab.page.close().await.map_err(|e| e.to_string())?;
         Ok(index)
+    }
+
+    /// Creates the context `name` and makes it active. A name already open is refused, since
+    /// a call meaning to start clean would otherwise inherit that context's cookies.
+    pub async fn create_context(&mut self, name: &str) -> Result<(), String> {
+        if self.contexts.iter().any(|(n, _)| n == name) {
+            return Err(format!(
+                "A context named '{name}' is already open. Close it first, or pick another name."
+            ));
+        }
+        let browser = self.browser().await.map_err(|e| e.to_string())?;
+        let context = browser
+            .new_context(self.options.context_options())
+            .await
+            .map_err(|e| e.to_string())?;
+        self.contexts
+            .push((name.to_owned(), HeldContext::new(context, &self.options)));
+        self.active_context = name.to_owned();
+        Ok(())
+    }
+
+    /// Makes the open context `name` active.
+    pub fn select_context(&mut self, name: &str) -> Result<(), String> {
+        if !self.contexts.iter().any(|(n, _)| n == name) {
+            return Err(format!(
+                "No open context is named '{name}'. Call context_list to see the open ones."
+            ));
+        }
+        self.active_context = name.to_owned();
+        Ok(())
+    }
+
+    /// Closes the context `name` and its tabs; `default` becomes active if it was. Whether
+    /// there was such a context.
+    pub async fn close_context(&mut self, name: &str) -> Result<bool, String> {
+        let Some(at) = self.contexts.iter().position(|(n, _)| n == name) else {
+            return Ok(false);
+        };
+        let (_, held) = self.contexts.remove(at);
+        if self.active_context == name {
+            self.active_context = DEFAULT_CONTEXT.to_owned();
+        }
+        held.context.close().await.map_err(|e| e.to_string())?;
+        Ok(true)
+    }
+
+    /// The active context and its mock rules, the context created if this is its first use.
+    pub async fn active_routes(
+        &mut self,
+    ) -> agito::Result<(BrowserContext, Arc<std::sync::Mutex<RouteTable>>)> {
+        let context = self.active_context().await?;
+        let routes = self
+            .held()
+            .expect("the active context exists")
+            .routes
+            .clone();
+        Ok((context, routes))
     }
 
     /// Closes the browser, if this session started one.
