@@ -7,7 +7,7 @@ run real browser tests.
 | Phase | Scope | Status |
 |---|---|---|
 | 0 | Workspace, CI, CDP codegen (`xtask`), protocol crate | Done |
-| 1 | Transport: sockets (WebSocket, pipe), CDP connection, sessions, capabilities, fake socket | Done (protocol log pending) |
+| 1 | Transport: sockets (WebSocket, pipe), CDP connection, sessions, capabilities, fake socket, protocol log | Done |
 | 2 | Launcher, browser finder, Browser/Context/Page/Frame, handles, input, config | Done for Chromium (see gaps) |
 | 3 | Plugins, selectors, Locator + actionability, network/routing/HAR, dialogs/downloads/file chooser | Done |
 | 4 | `expect` assertions, `#[agito::test]` harness, samples | MVP done (see gaps) |
@@ -51,6 +51,7 @@ run real browser tests.
 | `motus run` (`TestRunner`, `TestDiscovery`, `ShardSelector`, console, JUnit and HTML reporters, `FlakeHistoryReporter`), `[Quarantine]` | `agito run` (`crates/agito-cli/src/run`), `#[agito::test(quarantine = "reason")]`, `harness::TestRecord` |
 | `motus shard merge` (`ShardMerger`) | `agito shard merge` |
 | `IBrowserContext.StorageStateAsync`, `ContextOptions.StorageState` | `BrowserContext::storage_state`, `set_storage_state`, `ContextOptions::storage_state`, `agito::storage` |
+| `ProtocolLog`, `ProtocolLogOptions`, `ProtocolLogFormatter`, `MOTUS_PROTOCOL_LOG` | `transport::log`, `ProtocolLogOptions`, `AGITO_PROTOCOL_LOG` |
 | `motus update-protocol` (`ProtocolUpdater`, `ProtocolDiffer`) | `cargo xtask update-protocol` |
 | `motus screenshot`, `motus pdf`, `BannerRemoval` | `agito screenshot`, `agito pdf`, `js/banners.js` |
 | `IDownload`, `IPage.Download` | `Download` (`path`, `save_as`, `failure`, `cancel`, `delete`, `progress`), `page.wait_for_download` / `on_download` |
@@ -160,6 +161,10 @@ run real browser tests.
 - `filter_has` and `filter_has_not` apply. Motus accepted `Has` and `HasNot` in its locator
   options but never used them, so they matched everything. agito also adds
   `filter_has_not_text`.
+- The protocol log keeps Motus's line format and redaction rules. It is also set by
+  `launch.protocolLog` in the config file, and read with the other settings rather than on
+  every launch. Several processes share a file through append mode, which is atomic per
+  write, instead of Motus's cross-process mutex, which .NET's file appends needed.
 - Storage state:
   - The file is Playwright's `storageState` JSON, not Motus's own serialization, and keeps each
     cookie's `SameSite` policy, which Motus dropped.

@@ -21,7 +21,8 @@ A file that cannot be parsed is ignored with a warning, rather than failing ever
     "executablePath": null,
     "slowMo": 0,
     "timeout": 30000,
-    "chromiumSandbox": false
+    "chromiumSandbox": false,
+    "protocolLog": "target/protocol.log"
   },
   "context": {
     "viewport": { "width": 1280, "height": 720 },
@@ -48,6 +49,7 @@ Every key is optional. Times are in milliseconds.
 | `slowMo` | `AGITO_SLOWMO` | 0 | A pause before every command sent to the browser |
 | `timeout` | `AGITO_LAUNCH_TIMEOUT` | 30000 | How long launching may take |
 | `chromiumSandbox` | `AGITO_CHROMIUM_SANDBOX` | `false` | Run Chromium with its sandbox |
+| `protocolLog` | `AGITO_PROTOCOL_LOG` | none | Log every protocol message to this file, or to `stderr`: see [the protocol log](../writing/flaky-tests.md#the-protocol-log) |
 
 ### context
 

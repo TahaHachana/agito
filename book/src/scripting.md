@@ -34,6 +34,7 @@ them in code:
 | `downloads_path` | none | Where downloads go |
 | `chromium_sandbox` | `false` | Run Chromium with its sandbox |
 | `plugins` | none | [Plugins](extending.md) to load into every context |
+| `protocol_log` | none | Log every protocol message: see [the protocol log](writing/flaky-tests.md#the-protocol-log) |
 
 The browser closes when `browser.close()` is called or the last handle to it is dropped, and
 its temporary profile is removed.

@@ -17,7 +17,8 @@ use crate::browser::{Browser, BrowserProcess};
 use crate::config;
 use crate::error::{Error, ErrorKind, Result};
 use crate::plugin::Plugin;
-use crate::transport::{CdpConnection, ConnectionOptions, ws};
+use crate::transport::log::{ProtocolLog, describe_endpoint};
+use crate::transport::{CdpConnection, ConnectionOptions, ProtocolLogOptions, ws};
 pub use finder::BrowserChannel;
 
 /// How to launch a browser. [`Default`] starts from built-in defaults with `agito.config.json`
@@ -49,6 +50,10 @@ pub struct LaunchOptions {
     pub chromium_sandbox: bool,
     /// Plugins to load into every context, in addition to `#[agito::plugin]` registrations.
     pub plugins: Vec<Arc<dyn Plugin>>,
+    /// Log every protocol message. Off unless set here, by `launch.protocolLog` in
+    /// `agito.config.json` or by `AGITO_PROTOCOL_LOG`; options set here without a destination
+    /// take theirs from there. See [`transport::log`](crate::transport::log).
+    pub protocol_log: Option<ProtocolLogOptions>,
 }
 
 impl std::fmt::Debug for LaunchOptions {
@@ -61,6 +66,7 @@ impl std::fmt::Debug for LaunchOptions {
             .field("slow_mo", &self.slow_mo)
             .field("timeout", &self.timeout)
             .field("plugins", &self.plugins.len())
+            .field("protocol_log", &self.protocol_log)
             .finish_non_exhaustive()
     }
 }
@@ -80,6 +86,7 @@ impl Default for LaunchOptions {
             downloads_path: None,
             chromium_sandbox: c.chromium_sandbox.unwrap_or(false),
             plugins: Vec::new(),
+            protocol_log: None,
         }
     }
 }
@@ -93,6 +100,8 @@ pub struct ConnectOptions {
     pub timeout: Duration,
     /// Plugins to load into every context, in addition to `#[agito::plugin]` registrations.
     pub plugins: Vec<Arc<dyn Plugin>>,
+    /// Log every protocol message, as [`LaunchOptions::protocol_log`].
+    pub protocol_log: Option<ProtocolLogOptions>,
 }
 
 impl Default for ConnectOptions {
@@ -101,6 +110,7 @@ impl Default for ConnectOptions {
             slow_mo: Duration::ZERO,
             timeout: Duration::from_secs(30),
             plugins: Vec::new(),
+            protocol_log: None,
         }
     }
 }
@@ -195,23 +205,35 @@ async fn launch_chromium(
     }
 
     let timeout = options.timeout;
+    let log_options = ProtocolLogOptions::resolve(
+        options.protocol_log.as_ref(),
+        config::get().launch.protocol_log.as_deref(),
+    );
+    let pid = child.id().unwrap_or_default();
     let connect = async {
-        let pair = if use_pipe {
+        let (pair, log) = if use_pipe {
             let stdin = child.stdin.take().expect("piped stdin");
             let stdout = child.stdout.take().expect("piped stdout");
-            crate::transport::pipe::pipe_pair(stdin, stdout)
+            let log = log_options
+                .as_ref()
+                .and_then(|o| ProtocolLog::open(o, "cdp-pipe", &format!("pid {pid}")));
+            (crate::transport::pipe::pipe_pair(stdin, stdout), log)
         } else {
             let url =
                 endpoint::wait_for_ws_endpoint("127.0.0.1", port.expect("port mode"), timeout)
                     .await?;
-            ws::connect(&url).await?
+            let log = log_options
+                .as_ref()
+                .and_then(|o| ProtocolLog::open(o, "cdp-ws", &describe_endpoint(&url)));
+            (ws::connect(&url).await?, log)
         };
-        Ok::<_, Error>(CdpConnection::start(
+        Ok::<_, Error>(CdpConnection::start_with_log(
             pair,
             ConnectionOptions {
                 slow_mo: options.slow_mo,
                 ..Default::default()
             },
+            log,
         ))
     };
     let connection = match tokio::time::timeout(timeout, connect).await {
@@ -250,12 +272,18 @@ pub async fn connect(endpoint: &str, options: ConnectOptions) -> Result<Browser>
                 options.timeout
             ))
         })??;
-    let connection = CdpConnection::start(
+    let log = ProtocolLogOptions::resolve(
+        options.protocol_log.as_ref(),
+        config::get().launch.protocol_log.as_deref(),
+    )
+    .and_then(|o| ProtocolLog::open(&o, "cdp-ws", &describe_endpoint(&url)));
+    let connection = CdpConnection::start_with_log(
         pair,
         ConnectionOptions {
             slow_mo: options.slow_mo,
             ..Default::default()
         },
+        log,
     );
     tokio::time::timeout(
         options.timeout,
