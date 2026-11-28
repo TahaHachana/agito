@@ -601,6 +601,84 @@ impl PageAssertions {
         )
         .await
     }
+
+    /// The page and its iframes pass an accessibility audit: no error or warning from any
+    /// registered rule. See [`Page::audit_accessibility`].
+    ///
+    /// This audits once rather than retrying, since an audit is costly and a page still
+    /// loading is better waited for explicitly: assert on what the test needs first.
+    ///
+    /// ```no_run
+    /// # async fn example(page: agito::Page) -> agito::Result<()> {
+    /// use agito::expect;
+    ///
+    /// expect(&page).to_pass_accessibility_audit().await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn to_pass_accessibility_audit(self) -> Result<()> {
+        self.to_pass_accessibility_audit_with(&crate::accessibility::AuditOptions::default())
+            .await
+    }
+
+    /// [`to_pass_accessibility_audit`](Self::to_pass_accessibility_audit), skipping rules or
+    /// letting warnings pass.
+    ///
+    /// ```no_run
+    /// # async fn example(page: agito::Page) -> agito::Result<()> {
+    /// use agito::accessibility::AuditOptions;
+    /// use agito::expect;
+    ///
+    /// let options = AuditOptions {
+    ///     include_warnings: false,
+    ///     ..AuditOptions::skipping(&["a11y-color-contrast"])
+    /// };
+    /// expect(&page).to_pass_accessibility_audit_with(&options).await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn to_pass_accessibility_audit_with(
+        self,
+        options: &crate::accessibility::AuditOptions,
+    ) -> Result<()> {
+        let result = self.page.audit_accessibility(options).await?;
+        let failures = result.failures(options);
+        let passed = failures.is_empty() != self.settings.negate;
+        if passed {
+            return Ok(());
+        }
+        let not = if self.settings.negate { "NOT " } else { "" };
+        let expected = format!("{not}no accessibility violations");
+        let actual = if failures.is_empty() {
+            "no accessibility violations".to_owned()
+        } else {
+            failures
+                .iter()
+                .map(|v| {
+                    let mut line = format!("  {v}");
+                    if v.frame_url != self.page.url() {
+                        line.push_str(&format!(" in frame {}", v.frame_url));
+                    }
+                    line
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let page_url = self.page.url();
+        let message = self.settings.message.clone().unwrap_or_else(|| {
+            format!(
+                "Assertion {not}to_pass_accessibility_audit failed: {} violation(s) on {page_url}:\n{actual}",
+                failures.len()
+            )
+        });
+        Err(ErrorKind::Assertion(AssertionFailure {
+            expected: Some(expected),
+            actual: Some(actual),
+            selector: None,
+            page_url: Some(page_url),
+            timeout: Duration::ZERO,
+            message,
+        })
+        .into())
+    }
 }
 
 /// Assertions on a [`Response`]. These check once; a response does not change.

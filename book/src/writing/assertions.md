@@ -56,6 +56,9 @@ browser's accessibility tree:
 - **The accessible description** is the extra text a screen reader reads after the name,
   usually from `aria-describedby`.
 
+To check a whole page against accessibility rules instead, see
+[Accessibility](accessibility.md).
+
 ## On a page
 
 | Assertion | Holds when |

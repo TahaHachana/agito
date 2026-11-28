@@ -8,6 +8,13 @@
   `..Default::default()`, as the docs do, is unaffected.
 
 ### Added
+- Accessibility audits. `page.audit_accessibility` checks a page and its iframes against nine
+  WCAG-based rules (image alt text, labels on form controls, button and link names, colour
+  contrast, duplicate ids, the document's language, heading levels and a main landmark), and
+  `expect(&page).to_pass_accessibility_audit()` fails on what it finds, naming each element
+  by a CSS selector. Contrast is measured against the background actually behind the text.
+  Plugins can add rules with `register_accessibility_rule`, or replace a built-in one by id.
+  `page.accessibility_snapshot` returns the accessibility tree itself.
 - `to_have_role`, `to_have_accessible_name` and `to_have_accessible_description` assert what
   assistive technology sees, from the browser's accessibility tree: the computed role
   (implicit roles included, with ARIA's spellings such as `img` and `presentation`), the
