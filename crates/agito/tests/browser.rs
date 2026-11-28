@@ -80,6 +80,28 @@ async fn click_and_text_assertions(page: Page) -> agito::Result<()> {
 }
 
 #[agito::test]
+async fn fill_replaces_the_contents_of_a_contenteditable_element(page: Page) -> agito::Result<()> {
+    page.set_content(
+        r#"<div id="note" contenteditable="true">old <b>bold</b> text</div>
+        <script>
+          window.inputs = 0;
+          document.querySelector('#note').addEventListener('input', () => window.inputs++);
+        </script>"#,
+    )
+    .await?;
+    let note = page.locator("#note");
+    note.fill("first draft").await?;
+    expect(&note).to_have_text("first draft").await?;
+    note.fill("second draft").await?;
+    expect(&note).to_have_text("second draft").await?;
+    let inputs: u32 = page.evaluate("window.inputs").await?;
+    assert!(inputs >= 2, "the page saw its input events: {inputs}");
+    note.clear().await?;
+    expect(&note).to_be_empty().await?;
+    Ok(())
+}
+
+#[agito::test]
 async fn fill_type_press_and_values(page: Page) -> agito::Result<()> {
     page.set_content(
         r#"<form onsubmit="event.preventDefault(); document.getElementById('r').textContent = this.q.value">

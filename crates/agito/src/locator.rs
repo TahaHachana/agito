@@ -625,26 +625,37 @@ impl Locator {
         .await
     }
 
-    /// Sets an input's value, firing `input` and `change`.
+    /// Replaces the element's value with `value`: an input or textarea's value, firing its
+    /// `input` and `change` events, or a `contenteditable` element's contents, inserted as if
+    /// typed.
     pub async fn fill(&self, value: &str) -> Result<()> {
         self.run_action("fill", async {
             let handle = self.wait_actionable(EDIT, self.action_timeout()).await?;
-            self.eval::<Value>(&handle, FILL, &[Value::from(value)])
-                .await
-                .map(|_| ())
+            self.fill_handle(&handle, value).await
         })
         .await
     }
 
-    /// Empties an input.
+    /// Empties an input, a textarea or a `contenteditable` element.
     pub async fn clear(&self) -> Result<()> {
         self.run_action("clear", async {
             let handle = self.wait_actionable(EDIT, self.action_timeout()).await?;
-            self.eval::<Value>(&handle, FILL, &[Value::from("")])
-                .await
-                .map(|_| ())
+            self.fill_handle(&handle, "").await
         })
         .await
+    }
+
+    async fn fill_handle(&self, handle: &ElementHandle, value: &str) -> Result<()> {
+        let kind: String = self.eval(handle, FILL, &[Value::from(value)]).await?;
+        if kind == "editable" {
+            // The script selected the contents; replace the selection.
+            if value.is_empty() {
+                self.page.keyboard().press("Delete").await?;
+            } else {
+                self.page.keyboard().insert_text(value).await?;
+            }
+        }
+        Ok(())
     }
 
     /// Focuses the element and types `text` key by key.
@@ -1032,7 +1043,6 @@ pub(crate) fn is_retryable(error: &Error) -> bool {
     matches!(
         error.kind(),
         ErrorKind::ElementNotFound { .. }
-            | ErrorKind::AmbiguousSelector { .. }
             | ErrorKind::Evaluation { .. }
             | ErrorKind::Protocol { .. }
             | ErrorKind::CommandTimeout { .. }

@@ -32,8 +32,8 @@ that a human would make is refused, and the error says which element is in the w
 | `click()`, `dblclick()` | Clicks with the left button |
 | `click_with(ClickOptions)` | Clicks with another button, click count or modifier keys |
 | `hover()` | Moves the mouse over the element |
-| `fill(text)` | Sets the value of an input or textarea, and fires its `input` and `change` events |
-| `clear()` | Empties an input or textarea |
+| `fill(text)` | Sets the value of an input or textarea and fires its `input` and `change` events, or replaces the contents of a `contenteditable` element as if typed |
+| `clear()` | Empties an input, a textarea or a `contenteditable` element |
 | `type_text(text)` | Types `text` key by key, for pages that react to each keystroke |
 | `press(key)` | Presses a key or combination: `"Enter"`, `"Tab"`, `"Control+A"`, `"Shift+ArrowDown"` |
 | `check()`, `uncheck()`, `set_checked(bool)` | Sets a checkbox or radio button, and fails if it did not change |

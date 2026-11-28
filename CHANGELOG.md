@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- `fill` and `clear` work on `contenteditable` elements. They passed the editable check but
+  set a `value` such elements do not have, so the element did not change. They now select
+  the element's contents and replace them as if typed, so the page sees its input events.
+
+### Deprecated
+- `ErrorKind::AmbiguousSelector`. It was never raised: an action acts on the first element
+  its locator matches. It will be removed in 0.4.
+
 ## 0.3.0 (2026-11-27)
 
 The first release of the `agito` command-line tool (`agito-cli`) and of
