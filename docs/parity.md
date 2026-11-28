@@ -50,6 +50,7 @@ run real browser tests.
 | `motus install` (`BrowserInstaller`) | `agito install` (crate `agito-cli`), writing the markers `launch::finder` reads |
 | `motus run` (`TestRunner`, `TestDiscovery`, `ShardSelector`, console, JUnit and HTML reporters, `FlakeHistoryReporter`), `[Quarantine]` | `agito run` (`crates/agito-cli/src/run`), `#[agito::test(quarantine = "reason")]`, `harness::TestRecord` |
 | `motus shard merge` (`ShardMerger`) | `agito shard merge` |
+| `IBrowserContext.StorageStateAsync`, `ContextOptions.StorageState` | `BrowserContext::storage_state`, `set_storage_state`, `ContextOptions::storage_state`, `agito::storage` |
 | `motus update-protocol` (`ProtocolUpdater`, `ProtocolDiffer`) | `cargo xtask update-protocol` |
 | `motus screenshot`, `motus pdf`, `BannerRemoval` | `agito screenshot`, `agito pdf`, `js/banners.js` |
 | `IDownload`, `IPage.Download` | `Download` (`path`, `save_as`, `failure`, `cancel`, `delete`, `progress`), `page.wait_for_download` / `on_download` |
@@ -58,7 +59,7 @@ run real browser tests.
 
 - **Not yet ported:**
   - From the page: touch input, natural mouse motion, the cursor overlay. Adopting tabs that were already open when connecting is not ported either.
-  - Exposed bindings, storage state, permissions, geolocation, HTTP credentials.
+  - Exposed bindings, permissions, geolocation, HTTP credentials.
   - Browser pool, heartbeat, and signal handlers.
   - Harness options `launch = fn`, `perf_budget(...)` and failure tracing.
 - **Platforms:** Windows launches over a WebSocket port. The shared test browser is killed at
@@ -157,6 +158,14 @@ run real browser tests.
   - A crashed binary's unreported tests are re-run alone to find the one that crashed.
   - Under plain `cargo test`, a quarantined `#[agito::test]` that fails prints a warning and
     passes.
+- Storage state:
+  - The file is Playwright's `storageState` JSON, not Motus's own serialization, and keeps each
+    cookie's `SameSite` policy, which Motus dropped.
+  - Local storage is restored by a page on each origin. Motus ran `localStorage.setItem` on
+    the context's first page while it was still `about:blank`, so the values never reached
+    their origin.
+  - Only pages' own origins are saved: a cross-site iframe's storage is partitioned under the
+    site embedding it, so it cannot be restored as that origin's.
 - `--hide-banners` removes known consent managers by id, and anything else named for
   cookies, consent, GDPR or privacy only through its outermost fixed or sticky container.
   Motus removed every element whose class or id held one of those words (or `cc-`), which

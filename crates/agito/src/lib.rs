@@ -74,6 +74,7 @@ pub mod network;
 pub mod page;
 pub mod plugin;
 pub mod selectors;
+pub mod storage;
 pub mod transport;
 
 #[cfg(any(test, feature = "testing"))]

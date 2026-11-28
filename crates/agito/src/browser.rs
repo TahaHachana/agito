@@ -156,6 +156,7 @@ impl Browser {
                 ..Default::default()
             })
             .await?;
+        let state = options.storage_state.clone();
         let context =
             BrowserContext::create(self.clone(), result.browser_context_id, options).await?;
         self.inner
@@ -163,6 +164,12 @@ impl Browser {
             .lock()
             .unwrap()
             .push(Arc::downgrade(&context.inner));
+        if let Some(state) = state
+            && let Err(e) = context.set_storage_state(&state).await
+        {
+            let _ = context.close().await;
+            return Err(e);
+        }
         Ok(context)
     }
 

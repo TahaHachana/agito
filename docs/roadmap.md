@@ -138,8 +138,8 @@ phase number:
    `agito-cli`. CI's browser tests run through `agito run`, so it is exercised on every
    push, and its JUnit and HTML reports are kept as an artifact.
 2. **The gaps users hit first,** from [Remaining in phases 1-4](#remaining-in-phases-1-4):
-   storage state (reusing a login), the protocol log, `has` / `has_not` filters, and the role
-   and accessible-name assertions.
+   storage state (reusing a login, done), `has` / `has_not` filters, the protocol log, and the
+   role and accessible-name assertions.
 3. **Phase 6's accessibility layer.** Reading the browser's accessibility tree serves three
    things at once: the role and accessible-name assertions, the accessibility audits behind
    `agito run --a11y`, and the snapshot format the MCP server reproduces.
@@ -158,8 +158,8 @@ The first four items are step 2 of the [order of work](#order-of-work).
 - **Protocol log:** an optional file log of all browser traffic (Motus's `ProtocolLog`).
 - **Locators and assertions:** `has` / `has_not` filters, and the accessible-name and role
   assertions.
-- **Context state:** storage state save/load (to reuse a login), exposed bindings,
-  permissions, geolocation and HTTP credentials.
+- **Context state:** exposed bindings, permissions, geolocation and HTTP credentials. Storage
+  state (to reuse a login) is done.
 - **Input:** touch, natural mouse motion, and the cursor overlay.
 - **Browser management:** a browser pool, a heartbeat that notices frozen browsers, and
   signal handlers.

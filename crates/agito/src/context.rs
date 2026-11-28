@@ -20,6 +20,34 @@ use crate::page::{Page, PageInner};
 use crate::plugin::{LifecycleHook, PluginHost};
 use crate::selectors::SelectorRegistry;
 
+/// The page's origin and local storage, or `null` for an opaque origin.
+const READ_LOCAL_STORAGE: &str = "(() => { \
+    if (location.origin === 'null') return null; \
+    return [location.origin, Object.entries(localStorage)]; })()";
+
+/// Writes `[name, value]` pairs to local storage.
+const WRITE_LOCAL_STORAGE: &str =
+    "(entries) => { for (const [name, value] of entries) localStorage.setItem(name, value); }";
+
+fn same_site_from_cdp(same_site: network::CookieSameSite) -> Option<crate::storage::SameSite> {
+    use crate::storage::SameSite;
+    match same_site {
+        network::CookieSameSite::Strict => Some(SameSite::Strict),
+        network::CookieSameSite::Lax => Some(SameSite::Lax),
+        network::CookieSameSite::None => Some(SameSite::None),
+        _ => None,
+    }
+}
+
+fn same_site_to_cdp(same_site: crate::storage::SameSite) -> network::CookieSameSite {
+    use crate::storage::SameSite;
+    match same_site {
+        SameSite::Strict => network::CookieSameSite::Strict,
+        SameSite::Lax => network::CookieSameSite::Lax,
+        SameSite::None => network::CookieSameSite::None,
+    }
+}
+
 /// Viewport dimensions in CSS pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Viewport {
@@ -75,6 +103,9 @@ pub struct ContextOptions {
     pub action_timeout: Duration,
     /// Default timeout for navigations.
     pub navigation_timeout: Duration,
+    /// Cookies and local storage to start with, such as a signed-in session saved with
+    /// [`BrowserContext::storage_state`].
+    pub storage_state: Option<crate::storage::StorageState>,
 }
 
 impl Default for ContextOptions {
@@ -101,6 +132,7 @@ impl Default for ContextOptions {
             proxy_server: None,
             action_timeout: Duration::from_millis(c.locator.timeout.unwrap_or(30_000)),
             navigation_timeout: Duration::from_secs(30),
+            storage_state: None,
         }
     }
 }
@@ -553,6 +585,128 @@ impl BrowserContext {
             })
             .await?;
         Ok(())
+    }
+
+    /// The context's cookies, and the local storage of the origin each of its pages is on. Save
+    /// it with [`StorageState::save`](crate::storage::StorageState::save) to start other
+    /// contexts from it.
+    ///
+    /// A cross-site iframe's storage is left out: Chrome partitions it by the site that embeds
+    /// it, so it is not the storage that origin has when visited directly, and cannot be set
+    /// again the way a page's own storage can. A same-origin iframe shares its page's storage.
+    pub async fn storage_state(&self) -> Result<crate::storage::StorageState> {
+        use crate::storage::{OriginStorage, StorageItem, StorageState, StoredCookie};
+        let result = self
+            .inner
+            .browser
+            .browser_session()
+            .send(&storage::GetCookiesParams {
+                browser_context_id: Some(self.inner.id.clone()),
+            })
+            .await?;
+        let cookies = result
+            .cookies
+            .into_iter()
+            .map(|c| StoredCookie {
+                expires: if c.session { -1.0 } else { c.expires },
+                same_site: c.same_site.and_then(same_site_from_cdp),
+                name: c.name,
+                value: c.value,
+                domain: c.domain,
+                path: c.path,
+                http_only: c.http_only,
+                secure: c.secure,
+            })
+            .collect();
+
+        let mut origins: Vec<OriginStorage> = Vec::new();
+        for page in self.pages() {
+            // A page on an opaque origin (about:blank, data:) has no storage to keep, and one
+            // whose storage the browser refuses to open is skipped.
+            let Ok(Some((origin, entries))) = page
+                .evaluate::<Option<(String, Vec<(String, String)>)>>(READ_LOCAL_STORAGE)
+                .await
+            else {
+                continue;
+            };
+            if entries.is_empty() || origins.iter().any(|o| o.origin == origin) {
+                continue;
+            }
+            origins.push(OriginStorage {
+                origin,
+                local_storage: entries
+                    .into_iter()
+                    .map(|(name, value)| StorageItem { name, value })
+                    .collect(),
+            });
+        }
+        Ok(StorageState { cookies, origins })
+    }
+
+    /// Adds the cookies and local storage in `state` to this context.
+    ///
+    /// Local storage can only be written by a page on its origin, so this opens one temporary
+    /// page, takes it to each origin with a route that answers with an empty document (nothing
+    /// goes to the network), writes the entries and closes it. Lifecycle hooks see that page.
+    pub async fn set_storage_state(&self, state: &crate::storage::StorageState) -> Result<()> {
+        if !state.cookies.is_empty() {
+            let cookies = state
+                .cookies
+                .iter()
+                .map(|c| network::CookieParam {
+                    name: c.name.clone(),
+                    value: c.value.clone(),
+                    domain: Some(c.domain.clone()),
+                    path: Some(c.path.clone()),
+                    secure: Some(c.secure),
+                    http_only: Some(c.http_only),
+                    same_site: c.same_site.map(same_site_to_cdp),
+                    expires: (c.expires >= 0.0).then_some(c.expires),
+                    ..Default::default()
+                })
+                .collect();
+            self.inner
+                .browser
+                .browser_session()
+                .send(&storage::SetCookiesParams {
+                    cookies,
+                    browser_context_id: Some(self.inner.id.clone()),
+                })
+                .await?;
+        }
+
+        let origins: Vec<_> = state
+            .origins
+            .iter()
+            .filter(|o| !o.local_storage.is_empty())
+            .collect();
+        if origins.is_empty() {
+            return Ok(());
+        }
+        let page = self.new_page().await?;
+        let written = async {
+            page.route("**", |route| async move {
+                let _ = route
+                    .fulfill(crate::network::FulfillOptions::html(""))
+                    .await;
+            })
+            .await?;
+            for origin in origins {
+                page.goto(&format!("{}/", origin.origin.trim_end_matches('/')))
+                    .await?;
+                let entries: Vec<(&str, &str)> = origin
+                    .local_storage
+                    .iter()
+                    .map(|i| (i.name.as_str(), i.value.as_str()))
+                    .collect();
+                page.evaluate_with::<(), _>(WRITE_LOCAL_STORAGE, &entries)
+                    .await?;
+            }
+            Ok::<(), Error>(())
+        }
+        .await;
+        let _ = page.close().await;
+        written
     }
 
     /// Closes every page in the context and the context itself.
