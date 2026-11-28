@@ -273,7 +273,10 @@ impl Frame {
         let wrapped = format!(
             "(async () => {{ const __v = ({expression}); return typeof __v === 'function' ? await __v() : await __v; }})()"
         );
-        decode_value(self.evaluate_raw(&wrapped, !discards::<T>()).await?)
+        let value = self.evaluate_raw(&wrapped, !discards::<T>()).await?;
+        // What the script changed may include frames, which the page hears of by event.
+        self.page.sync_events().await;
+        decode_value(value)
     }
 
     /// Calls a JavaScript function in this frame with one serializable argument.
@@ -284,7 +287,9 @@ impl Frame {
     ) -> Result<T> {
         let arg = to_arg(arg)?;
         let expression = format!("(async () => await ({function})({arg}))()");
-        decode_value(self.evaluate_raw(&expression, !discards::<T>()).await?)
+        let value = self.evaluate_raw(&expression, !discards::<T>()).await?;
+        self.page.sync_events().await;
+        decode_value(value)
     }
 
     /// The frame document's title.
