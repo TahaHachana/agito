@@ -88,6 +88,7 @@ touches are left out until `--caps` names them:
 | Coordinate input | `coordinates` | `click_xy`, `hover_xy`, `move_xy`, `scroll_xy`, `drag`, `resize` |
 | Isolated contexts | `contexts` | `context_list`, `context_create`, `context_select`, `context_close` |
 | Request mocking | `routing` | `route_fulfill`, `route_abort`, `route_continue`, `unroute`, `route_list` |
+| Recording | `recording` | `trace_start`, `trace_stop`, `har_start`, `har_stop`, `video_start`, `video_stop` |
 | Attaching to a running browser | `--allow-attach` or `--connect` | `browser_attach` |
 
 ```console
@@ -95,8 +96,7 @@ claude mcp add agito -- agito mcp --caps coordinates,contexts,routing
 ```
 
 Separate groups with commas or repeat the flag; `AGITO_MCP_CAPS` takes the same list, and the
-flag outranks it. Naming a group only ever adds tools. A recording group (traces, HAR and
-video) will follow once agito records traces and video.
+flag outranks it. Naming a group only ever adds tools.
 
 ### Snapshots and refs
 
@@ -317,6 +317,21 @@ and DOM node count, and each layout shift with the elements that moved. The text
 them; the structured result has each value. LCP and CLS keep changing while a page loads, and
 INP needs an interaction, so read again after acting.
 
+### Recording
+
+With `--caps recording`:
+
+- **`trace_start`** and **`trace_stop`** record a [trace](writing/tracing.md) of the active
+  context: its actions, navigations, console, network and screenshots, as a zip.
+  `timeline: true` adds the browser's performance timeline.
+- **`har_start`** and **`har_stop`** record the active page's network traffic as a HAR file.
+- **`video_start`** and **`video_stop`** record the active page as a [video](writing/video.md).
+
+Each stop tool takes a `path`, relative to the server's output directory, and writes a fresh
+name there when it has none. The result gives the file's absolute path. Started with
+`--record-video DIR`, the server records every page for its whole life instead, finishing each
+video when its page closes; `video_start` then says so.
+
 ### One call at a time
 
 The server runs tool calls one at a time, so two calls never act on the page at once. A client
@@ -390,7 +405,9 @@ credential, and prefer loopback or a trusted network.
 | `--settle MS` | `500` | How long an action waits for the page to show what it did |
 | `--dialogs` | `ask` | `ask` leaves a dialog for `handle_dialog`; `accept` or `dismiss` answers it at once |
 | `--caps GROUPS` | none | Optional tool groups: `coordinates`, `contexts`, `routing`. Also `AGITO_MCP_CAPS` |
-| `--allow-unrestricted-file-access` | off | Let tools open `file://` URLs, and upload files from anywhere |
+| `--output-dir DIR` | a directory under the system temporary directory | Where the recording tools write their files; printed at startup |
+| `--record-video DIR` | | Record a video of every page into this directory |
+| `--allow-unrestricted-file-access` | off | Let tools open `file://` URLs, and read and write files anywhere |
 | `--connect ENDPOINT` | | Drive the browser already running at this debugging endpoint instead of starting one |
 | `--allow-attach` | off | List `browser_attach`; implied by `--connect` |
 | `--http` | off | Serve Streamable HTTP instead of stdio |
@@ -400,7 +417,9 @@ credential, and prefer loopback or a trusted network.
 Options left out fall back to [`agito.config.json`](reference/configuration.md) and `AGITO_*`
 variables, read from the directory the server starts in, as tests do.
 
-**`file://` is blocked** by default, and uploads read only from the client's roots: a page
-could otherwise talk an agent into reading the machine's files back.
+**`file://` is blocked** by default, uploads read only from the client's roots, and the
+recording tools write only inside the output directory: a page could otherwise talk an agent
+into reading the machine's files back, or writing over them. A path that is absolute, or
+climbs out with `..` or a link, is refused.
 
 Stdout carries the protocol, so the server writes its own messages to stderr.
