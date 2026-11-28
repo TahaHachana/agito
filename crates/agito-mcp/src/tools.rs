@@ -1519,6 +1519,74 @@ impl AgitoServer {
     }
 
     #[tool(
+        name = "get_performance",
+        description = "Returns performance telemetry for the active page: the Core Web Vitals \
+            LCP, FCP, TTFB and INP in milliseconds, CLS as a unitless layout-shift score, the JS \
+            heap size in bytes, the DOM node count, and each layout shift with the elements that \
+            moved. LCP and CLS keep changing while a page loads, and INP needs an interaction, so \
+            read again after acting.",
+        annotations(
+            title = "Get performance metrics",
+            read_only_hint = true,
+            destructive_hint = false
+        )
+    )]
+    async fn get_performance(&self) -> CallToolResult {
+        let tab = match self.tab().await {
+            Ok(tab) => tab,
+            Err(result) => return result,
+        };
+        let page = tab.page.clone();
+        let result = self
+            .read(&tab, async move {
+                let metrics = page
+                    .performance_metrics()
+                    .await
+                    .map_err(|e| format!("Reading performance metrics failed: {e}"))?;
+                Ok(serde_json::to_string(&metrics).expect("metrics serialize"))
+            })
+            .await;
+        if result.is_error == Some(true) {
+            return result;
+        }
+        let Ok(metrics) =
+            serde_json::from_str::<agito::performance::PerformanceMetrics>(first_text(&result))
+        else {
+            return result;
+        };
+        let ms = |v: Option<f64>| v.map_or_else(|| "n/a".to_owned(), |v| format!("{v:.0}ms"));
+        let mut summary = format!(
+            "LCP {}, FCP {}, TTFB {}, CLS {}, INP {}.",
+            ms(metrics.lcp),
+            ms(metrics.fcp),
+            ms(metrics.ttfb),
+            metrics
+                .cls
+                .map_or_else(|| "n/a".to_owned(), |v| format!("{v:.3}")),
+            ms(metrics.inp)
+        );
+        if let (Some(heap), Some(nodes)) = (metrics.js_heap_size, metrics.dom_nodes) {
+            summary.push_str(&format!(" JS heap {heap} bytes, {nodes} DOM nodes."));
+        }
+        for shift in &metrics.layout_shifts {
+            summary.push_str(&format!(
+                "\nLayout shift {:.3} at {:.0}ms: {}",
+                shift.score,
+                shift.time,
+                if shift.sources.is_empty() {
+                    "elements not named".to_owned()
+                } else {
+                    shift.sources.join(", ")
+                }
+            ));
+        }
+        let mut structured =
+            CallToolResult::structured(serde_json::to_value(&metrics).expect("metrics serialize"));
+        structured.content = vec![ContentBlock::text(summary)];
+        structured
+    }
+
+    #[tool(
         name = "tab_list",
         description = "Lists every open tab this session has, each with its zero-based index, \
             URL, and title. The index is the one tab_select and tab_close take.",

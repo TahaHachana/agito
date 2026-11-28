@@ -108,6 +108,7 @@ fn run_test(context: fn() -> ContextOptions, url: &'static str) -> Option<String
                 retries: 0,
                 context,
                 quarantine: None,
+                perf_budget: None,
             },
             |fixtures: Fixtures| async move {
                 fixtures.page.goto(url).await?;
@@ -158,6 +159,7 @@ fn a_failing_test_keeps_its_own_failure() {
                 retries: 0,
                 context: enforce,
                 quarantine: None,
+                perf_budget: None,
             },
             |fixtures: Fixtures| async move {
                 fixtures.page.goto(BROKEN).await?;

@@ -19,6 +19,7 @@
 - [Actions](writing/actions.md)
 - [Assertions](writing/assertions.md)
 - [Accessibility](writing/accessibility.md)
+- [Performance](writing/performance.md)
 - [Fixtures and context options](writing/fixtures.md)
 - [Network](writing/network.md)
 - [Frames and popups](writing/frames-and-popups.md)

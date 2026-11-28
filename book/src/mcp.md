@@ -64,7 +64,7 @@ printf '%s\n' \
 | Area | Tools |
 |---|---|
 | Navigation | `navigate`, `go_back`, `go_forward`, `reload` |
-| Perception | `snapshot`, `screenshot`, `audit_accessibility` |
+| Perception | `snapshot`, `screenshot`, `audit_accessibility`, `get_performance` |
 | Interaction | `click`, `type`, `press`, `press_key`, `hover`, `focus`, `clear`, `select_option`, `set_checked`, `scroll_into_view`, `wait_for_element`, `wait_for` |
 | Tabs | `tab_list`, `tab_open`, `tab_select`, `tab_close` |
 | Frames | `frame_list`, `frame_select` |
@@ -309,6 +309,13 @@ allows file access.
 running the server, and must lie inside one of the roots the MCP client reported (the project
 folders it works in), or the server's working directory when the client reports none. A path
 that climbs out with `..`, or a link pointing out, is refused like any other.
+
+### Performance
+
+`get_performance` reads the page's [Core Web Vitals](writing/performance.md), its JS heap size
+and DOM node count, and each layout shift with the elements that moved. The text summarises
+them; the structured result has each value. LCP and CLS keep changing while a page loads, and
+INP needs an interaction, so read again after acting.
 
 ### One call at a time
 

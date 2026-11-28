@@ -12,16 +12,17 @@ run real browser tests.
 | 3 | Plugins, selectors, Locator + actionability, network/routing/HAR, dialogs/downloads/file chooser | Done |
 | 4 | `expect` assertions, `#[agito::test]` harness, samples | MVP done (see gaps) |
 | 5 | Firefox / WebDriver BiDi | Deferred until there is demand ([why](roadmap.md#phase-5-firefox--webdriver-bidi-deferred)) |
-| 6 | Accessibility, performance, coverage, tracing, video | In progress: accessibility done |
+| 6 | Accessibility, performance, coverage, tracing, video | In progress: accessibility and performance done; tracing, video and coverage next |
 | 7 | CLI (`agito`) | Done; `run` settings in `agito.config.json` left |
 | 8 | Recorder, codegen, check-selectors | Not started |
-| 9 | MCP server | Done, but for the recording group, `get_performance` and `generate_pom`, which wait for phases 6 and 8 |
+| 9 | MCP server | Done, but for the recording group and `generate_pom`, which wait for phases 6 and 8 |
 | 10 | Visual runner | Not started |
 
 ## Ported
 
 | Motus | agito |
 |---|---|
+| `PerformanceMetricsCollector`, `PerformanceBudget`, `[PerformanceBudget]`, `ToMeetPerformanceBudgetAsync`, `ToHaveLcpBelowAsync` and the other metric assertions | `page.performance_metrics()`, `performance::PerformanceBudget`, `perf_budget(...)`, `to_meet_performance_budget`, `to_have_lcp_below` and the others |
 | `MotusLauncher.LaunchAsync` / `ConnectAsync`, adopting a connected browser's open tabs | `agito::launch` / `agito::connect`, `Browser::default_context` |
 | `LaunchOptions`, `ContextOptions` | same names; `Default` applies config and env |
 | `BrowserFinder`, `InstalledBrowsers`, `ChromiumArgs`, `CdpEndpointPoller` | `launch::{finder, args, endpoint}` |
@@ -67,7 +68,7 @@ run real browser tests.
   - From the page: touch input, natural mouse motion, the cursor overlay.
   - Exposed bindings, permissions, geolocation, HTTP credentials.
   - Browser pool, heartbeat, and signal handlers.
-  - Harness options `launch = fn`, `perf_budget(...)` and failure tracing.
+  - Harness options `launch = fn` and failure tracing.
 - **Platforms:** Windows launches over a WebSocket port. The shared test browser is killed at
   process exit only on Unix, where it is tied to the pipe.
 
@@ -239,8 +240,22 @@ run real browser tests.
   - Attaching adopts the browser's default context through `Browser::default_context`, which
     applies no emulation to it; `--viewport`, `--user-agent`, `--locale` and `--timezone` are
     reported as having no effect with `--connect`, besides the launch options.
-  - Not yet: `get_performance` and `generate_pom`, which wait for performance metrics and
-    code generation in agito itself.
+  - Not yet: `generate_pom`, which waits for code generation in agito itself.
+
+- Performance:
+  - Metrics are read on demand from the browser's buffered performance entries, so there is
+    no collector to enable and no script injected into every page. Motus injected observers
+    when performance collection was turned on, and kept the last reading per page.
+  - CLS is the worst session window (shifts under a second apart, at most five seconds), as
+    browsers define it. Motus summed every shift over the page's life.
+  - INP uses each interaction's full duration, up to the next paint, grouped by interaction,
+    ignoring one in fifty. Motus took the largest processing time, which leaves out the paint.
+    Browsers buffer only interactions of 104 ms or more, so the first input stands in below
+    that.
+  - Layout shifts name the elements that moved as CSS selectors; Motus gave tag names.
+  - A budget comes from `#[agito::test(perf_budget(...))]` or the config, as Motus's from its
+    attribute or config. Metrics are not collected after every navigation or reported per
+    test; `agito run` does not report them yet.
 
 ## Inherited as-is
 

@@ -73,6 +73,7 @@ pub mod launch;
 pub mod locator;
 pub mod network;
 pub mod page;
+pub mod performance;
 pub mod plugin;
 pub mod selectors;
 pub mod storage;
