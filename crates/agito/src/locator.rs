@@ -1,5 +1,6 @@
 //! Locators: lazy, re-resolving descriptions of elements, with auto-waiting actions.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
@@ -11,6 +12,7 @@ use crate::input::ClickOptions;
 use crate::page::Page;
 use crate::plugin::ActionResult;
 use crate::selectors::{css_string, parse_prefix};
+use crate::transport::Session;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
@@ -93,6 +95,11 @@ enum Step {
     Parent(u32),
     /// Keep matches whose text contains this.
     HasText(String),
+    /// Keep matches whose text does not contain this.
+    HasNotText(String),
+    /// Keep matches that contain (`keep: true`) or do not contain (`keep: false`) an element
+    /// the inner locator matches.
+    Has { inner: Box<Locator>, keep: bool },
     /// Keep one match: index from zero, or -1 for the last.
     Nth(i64),
 }
@@ -188,6 +195,11 @@ impl Locator {
                 Step::Child(css) => s.push_str(&format!(" >> {css}")),
                 Step::Parent(n) => s.push_str(&" >> ..".repeat(*n as usize)),
                 Step::HasText(t) => s.push_str(&format!(" >> has-text={t:?}")),
+                Step::HasNotText(t) => s.push_str(&format!(" >> has-not-text={t:?}")),
+                Step::Has { inner, keep } => {
+                    let kind = if *keep { "has" } else { "has-not" };
+                    s.push_str(&format!(" >> {kind}=({})", inner.description()));
+                }
                 Step::Nth(-1) => s.push_str(" >> last"),
                 Step::Nth(n) => s.push_str(&format!(" >> nth={n}")),
             }
@@ -259,9 +271,44 @@ impl Locator {
         self.with_step(Step::Nth(index as i64))
     }
 
-    /// Only matches whose text contains `text`.
+    /// Only matches whose text contains `text`, case-sensitively.
     pub fn filter_has_text(&self, text: &str) -> Locator {
         self.with_step(Step::HasText(text.to_owned()))
+    }
+
+    /// Only matches whose text does not contain `text`, case-sensitively.
+    pub fn filter_has_not_text(&self, text: &str) -> Locator {
+        self.with_step(Step::HasNotText(text.to_owned()))
+    }
+
+    /// Only matches that contain an element `inner` matches, such as the rows that have a
+    /// "Sold out" badge. `inner` is any locator on the same page and frame: it is resolved as
+    /// usual, so refinements such as `first()` on it apply across the frame, not within each
+    /// match. An element does not count as containing itself.
+    ///
+    /// ```no_run
+    /// # async fn example(page: agito::Page) -> agito::Result<()> {
+    /// let sold_out = page
+    ///     .locator(".product")
+    ///     .filter_has(&page.get_by_text("Sold out"));
+    /// let in_stock = page
+    ///     .locator(".product")
+    ///     .filter_has_not(&page.get_by_text("Sold out"));
+    /// # Ok(()) }
+    /// ```
+    pub fn filter_has(&self, inner: &Locator) -> Locator {
+        self.with_step(Step::Has {
+            inner: Box::new(inner.clone()),
+            keep: true,
+        })
+    }
+
+    /// Only matches that contain no element `inner` matches. See [`Locator::filter_has`].
+    pub fn filter_has_not(&self, inner: &Locator) -> Locator {
+        self.with_step(Step::Has {
+            inner: Box::new(inner.clone()),
+            keep: false,
+        })
     }
 
     /// Whether CSS and text selectors search inside shadow roots (the default).
@@ -343,6 +390,41 @@ impl Locator {
                             .await?
                             .is_some_and(|t| t.contains(text.as_str()))
                         {
+                            kept.push(h);
+                        }
+                    }
+                    kept
+                }
+                Step::HasNotText(text) => {
+                    let mut kept = Vec::new();
+                    for h in handles {
+                        if !h
+                            .text_content()
+                            .await?
+                            .is_some_and(|t| t.contains(text.as_str()))
+                        {
+                            kept.push(h);
+                        }
+                    }
+                    kept
+                }
+                Step::Has { inner, keep } => {
+                    let inner_frame = inner.resolve_frame().await?;
+                    if inner.page.target_id() != self.page.target_id()
+                        || inner_frame.id() != frame.id()
+                    {
+                        return Err(Error::invalid_argument(format!(
+                            "The locator '{}' given to filter_has or filter_has_not finds elements in another page or frame than '{}', so it cannot be inside them.",
+                            inner.description(),
+                            self.description()
+                        )));
+                    }
+                    let (inner_handles, _) = Box::pin(inner.resolve_all()).await?;
+                    let mut kept = Vec::new();
+                    for h in handles {
+                        let contains = !inner_handles.is_empty()
+                            && contains_any(session, &h, &inner_handles).await?;
+                        if contains == *keep {
                             kept.push(h);
                         }
                     }
@@ -1036,6 +1118,46 @@ async fn dedupe(
         }
     }
     Ok(out)
+}
+
+/// Whether `outer` contains any of `inner`, other than itself. The walk up from each inner
+/// element steps out of shadow roots to their hosts, as selectors pierce them.
+async fn contains_any(
+    session: &Arc<dyn Session>,
+    outer: &ElementHandle,
+    inner: &[ElementHandle],
+) -> Result<bool> {
+    const CONTAINS: &str = "function(...inner) { \
+        const self = this; \
+        return inner.some((e) => { \
+            if (e === self) return false; \
+            for (let n = e; n; n = n.parentNode || n.host) { if (n === self) return true; } \
+            return false; \
+        }); }";
+    let arguments = inner
+        .iter()
+        .map(|h| agito_protocol::cdp::runtime::CallArgument {
+            object_id: Some(h.object_id().to_owned()),
+            ..Default::default()
+        })
+        .collect();
+    let result = session
+        .send(&agito_protocol::cdp::runtime::CallFunctionOnParams {
+            function_declaration: CONTAINS.to_owned(),
+            object_id: Some(outer.object_id().to_owned()),
+            arguments: Some(arguments),
+            return_by_value: Some(true),
+            ..Default::default()
+        })
+        .await?;
+    if let Some(details) = result.exception_details {
+        return Err(crate::handles::evaluation_error(&details));
+    }
+    Ok(result
+        .result
+        .value
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false))
 }
 
 /// Errors an actionability or assertion loop retries rather than surfacing.

@@ -29,7 +29,7 @@ run real browser tests.
 | `IBrowser` / `Browser` | `Browser` (Drop kills a launched browser and removes its temp profile) |
 | `IBrowserContext` | `BrowserContext`: pages, init scripts, cookies, close |
 | `IPage` | `Page`: goto/reload/back/forward, wait_for_load_state/url, evaluate, content, set_content, screenshot, pdf, viewport, console/page-error/dialog events, `get_by_*` |
-| `ILocator` / `ActionabilityChecker` | `Locator`: click, dblclick, hover, focus, fill, clear, type_text, press, check/uncheck, select_option, wait_for, queries, first/last/nth, filter_has_text, chained `locator` incl. `..` |
+| `ILocator` / `ActionabilityChecker` | `Locator`: click, dblclick, hover, focus, fill, clear, type_text, press, check/uncheck, select_option, wait_for, queries, first/last/nth, filter_has_text, filter_has_not_text, filter_has, filter_has_not, chained `locator` incl. `..` |
 | `IMouse`, `IKeyboard`, `KeyDefinitions` | `Mouse`, `Keyboard` (same US layout table) |
 | `IElementHandle` | `ElementHandle` |
 | `IFrame`, `IPage.MainFrame` / `Frames`, out-of-process iframe adoption, frame origins | `Frame` (`page.main_frame()`, `page.frames()`, `page.frame(name)`, `frame_by_url`), plus `FrameLocator` |
@@ -64,8 +64,7 @@ run real browser tests.
   - Harness options `launch = fn`, `perf_budget(...)` and failure tracing.
 - **Platforms:** Windows launches over a WebSocket port. The shared test browser is killed at
   process exit only on Unix, where it is tied to the pipe.
-- **Assertions:** `has`/`has_not` locator filters and the accessibility-name/role
-  assertions are missing.
+- **Assertions:** the accessibility-name/role assertions are missing.
 
 ## Deliberate behavior differences
 
@@ -158,6 +157,9 @@ run real browser tests.
   - A crashed binary's unreported tests are re-run alone to find the one that crashed.
   - Under plain `cargo test`, a quarantined `#[agito::test]` that fails prints a warning and
     passes.
+- `filter_has` and `filter_has_not` apply. Motus accepted `Has` and `HasNot` in its locator
+  options but never used them, so they matched everything. agito also adds
+  `filter_has_not_text`.
 - Storage state:
   - The file is Playwright's `storageState` JSON, not Motus's own serialization, and keeps each
     cookie's `SameSite` policy, which Motus dropped.

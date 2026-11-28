@@ -7,6 +7,9 @@
   `..ContextOptions::default()`, as the docs do, is unaffected.
 
 ### Added
+- `Locator::filter_has` and `filter_has_not` keep the matches that contain, or do not
+  contain, an element another locator matches, with any kind of selector, inside shadow roots
+  too. `filter_has_not_text` is the opposite of `filter_has_text`.
 - Storage state, to start contexts already signed in. `context.storage_state()` reads a
   context's cookies (with their `SameSite` policy) and the local storage of each page's
   origin; `StorageState::save` and `load` keep it as JSON in Playwright's `storageState`

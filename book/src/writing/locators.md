@@ -61,6 +61,26 @@ Refinements apply in the order you write them:
   with `..` steps up to the parent first: `locator.locator("..")` is the parent itself. It
   returns a `Result`, which is an error only for an empty selector.
 
+### Filtering by what an element contains
+
+To keep the matches that contain something, or that do not, filter them with another
+locator:
+
+```rust,ignore
+{{#include ../../../samples/agito-samples/tests/book.rs:locators_filter}}
+```
+
+- `filter_has(&locator)` keeps matches that contain an element the other locator matches;
+  `filter_has_not(&locator)` keeps those that contain none. The other locator can use any
+  kind of selector, `get_by_*` included, and finds elements inside shadow roots too. An
+  element does not count as containing itself.
+- `filter_has_not_text(text)` is the opposite of `filter_has_text`.
+
+The other locator is resolved across the page, then each match is checked for containing one
+of its elements, so it must be on the same page and in the same frame. Its own refinements
+apply across the page: `filter_has(&page.locator("button").first())` keeps the match that
+contains the page's first button, not each match's first button.
+
 An action acts on the first element the locator matches, so when several match, narrow it
 down with the methods above until it means the one you want. Assertions such as
 `to_have_count` look at every match.
