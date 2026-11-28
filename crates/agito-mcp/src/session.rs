@@ -356,6 +356,10 @@ impl HeldContext {
         let keep = tabs.clone();
         let policy = options.dialogs;
         context.on_page(move |page| keep.lock().unwrap().push(Tab::attach(page, policy)));
+        // An adopted context arrives with the tabs that were already open.
+        tabs.lock()
+            .unwrap()
+            .extend(context.pages().iter().map(|page| Tab::attach(page, policy)));
         HeldContext {
             context,
             tabs,
@@ -378,11 +382,14 @@ pub(crate) struct Session {
     browser: Option<Browser>,
     contexts: Vec<(String, HeldContext)>,
     active_context: String,
+    /// The debugging endpoint of a browser to attach to rather than start.
+    endpoint: Option<String>,
 }
 
 impl Session {
     pub fn new(options: Arc<ServerOptions>) -> Self {
         Session {
+            endpoint: options.connect.clone(),
             options,
             browser: None,
             contexts: Vec::new(),
@@ -409,14 +416,54 @@ impl Session {
             if browser.is_connected() {
                 return Ok(browser.clone());
             }
-            eprintln!("agito mcp: the browser went away; starting another");
+            // A launched browser that went away is started again. An attached one is
+            // reconnected to at the same endpoint: a browser this session did not start
+            // cannot be started by it, and the endpoint is what may still answer.
+            eprintln!(
+                "agito mcp: the browser went away; {}",
+                if self.endpoint.is_some() {
+                    "connecting again"
+                } else {
+                    "starting another"
+                }
+            );
             self.browser = None;
             self.contexts.clear();
             self.active_context = DEFAULT_CONTEXT.to_owned();
         }
-        let browser = agito::launch(self.options.launch_options()).await?;
+        let browser = match &self.endpoint {
+            Some(endpoint) => agito::connect(endpoint, agito::ConnectOptions::default()).await?,
+            None => agito::launch(self.options.launch_options()).await?,
+        };
         self.browser = Some(browser.clone());
         Ok(browser)
+    }
+
+    /// The endpoint of the browser attached to, if any.
+    pub fn endpoint(&self) -> Option<&str> {
+        self.endpoint.as_deref()
+    }
+
+    /// Lets go of the current browser and attaches to the one at `endpoint`, adopting what
+    /// it has open. Refs, routes, logs and named contexts do not carry over.
+    pub async fn attach(&mut self, endpoint: &str) -> agito::Result<usize> {
+        self.release().await;
+        self.endpoint = Some(endpoint.to_owned());
+        self.active_context = DEFAULT_CONTEXT.to_owned();
+        self.active_context().await?;
+        Ok(self.tabs().len())
+    }
+
+    /// Closes a browser this session started, or disconnects from one it attached to.
+    async fn release(&mut self) {
+        self.contexts.clear();
+        if let Some(browser) = self.browser.take() {
+            if browser.owns_process() {
+                let _ = browser.close().await;
+            } else {
+                let _ = browser.disconnect().await;
+            }
+        }
     }
 
     async fn active_context(&mut self) -> agito::Result<BrowserContext> {
@@ -428,7 +475,14 @@ impl Session {
         {
             return Ok(held.context.clone());
         }
-        let context = browser.new_context(self.options.context_options()).await?;
+        // Attached, the default context is the browser's own, with what is open in it.
+        let context = if self.endpoint.is_some() && self.active_context == DEFAULT_CONTEXT {
+            browser
+                .default_context(self.options.context_options())
+                .await?
+        } else {
+            browser.new_context(self.options.context_options()).await?
+        };
         self.contexts.push((
             self.active_context.clone(),
             HeldContext::new(context.clone(), &self.options),
@@ -599,8 +653,24 @@ impl Session {
 
     /// Closes the browser, if this session started one.
     pub async fn shutdown(&mut self) {
-        if let Some(browser) = self.browser.take() {
-            let _ = browser.close().await;
+        self.release().await;
+    }
+}
+
+impl Drop for Session {
+    /// A session ending without `shutdown`, as an HTTP session does when its client leaves or
+    /// goes idle, still closes the browser it started: the browser's pages hold it alive.
+    fn drop(&mut self) {
+        if let Some(browser) = self.browser.take()
+            && let Ok(runtime) = tokio::runtime::Handle::try_current()
+        {
+            runtime.spawn(async move {
+                if browser.owns_process() {
+                    let _ = browser.close().await;
+                } else {
+                    let _ = browser.disconnect().await;
+                }
+            });
         }
     }
 }

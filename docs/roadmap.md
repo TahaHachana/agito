@@ -121,7 +121,7 @@ planned. That way the attribute can be used as `#[agito::test]`.
 | 6 | Accessibility, performance, coverage, tracing, video | In progress: accessibility done |
 | 7 | CLI | Done; `run` settings in `agito.config.json` left |
 | 8 | Recorder, codegen, check-selectors | Not started |
-| 9 | MCP server | In progress: stdio, the always-available tools and the `--caps` groups; HTTP, the security policy and attaching next |
+| 9 | MCP server | Done, but for the recording group, `get_performance` and `generate_pom`, which wait for phases 6 and 8 |
 | 10 | Visual runner | Not started |
 
 Releases: 0.1.0 covered phases 0-4 (MVP); 0.2.0 added iframes and network; 0.3.0 added
@@ -143,7 +143,7 @@ phase number:
    `to_pass_accessibility_audit`), the automatic audit hook with warn and enforce modes, and
    `agito run --a11y`. The accessibility tree next serves the snapshot format the MCP server
    reproduces.
-4. **Phase 9, the MCP server,** which lets agents drive a browser through agito. In
+4. **Phase 9, the MCP server:** done, but for what waits on phases 6 and 8. In
    increments:
    - A, done: the `agito-mcp` crate and `agito mcp` over stdio, the snapshot format with
      refs, and the core tools (navigation, snapshot, screenshot, element actions, waits,
@@ -154,8 +154,9 @@ phase number:
      `generate_pom` phase 8's code generation.
    - C, done: the `--caps` groups: coordinates, contexts and routing. Recording follows
      tracing and video.
-   - D: streamable HTTP with a bearer token, the security policy (output directory, client
-     roots for `upload_files`), and `--connect` / `browser_attach`.
+   - D, done: streamable HTTP with a bearer token, client roots for `upload_files`, and
+     `--connect` / `browser_attach` on `Browser::default_context`. The output directory
+     follows the first tool that writes a file, the recording group.
 5. **The rest of phase 6** (performance, coverage, tracing, video), then phases 8 and 10.
 6. **Phase 5, Firefox,** when someone needs it.
 
@@ -172,7 +173,8 @@ The first four items are step 2 of the [order of work](#order-of-work).
 - **Input:** touch, natural mouse motion, and the cursor overlay.
 - **Browser management:** a browser pool, a heartbeat that notices frozen browsers, and
   signal handlers.
-- **Connecting:** taking over tabs already open in a browser agito connects to.
+- **Connecting:** done. `Browser::default_context` takes over the tabs already open in a
+  browser agito connects to.
 - **Harness options:** `launch = fn`, `perf_budget(...)` and failure tracing.
 - **Windows:** killing the shared test browser at process exit.
 

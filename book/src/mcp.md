@@ -71,6 +71,7 @@ printf '%s\n' \
 | Scripting | `evaluate` |
 | Dialogs | `handle_dialog` |
 | Logs | `console_messages`, `network_requests`, `network_request` |
+| Files | `upload_files` |
 | Browser | `browser_status` |
 
 A tool that fails returns an error result whose message says what to do next, such as taking a
@@ -87,6 +88,7 @@ touches are left out until `--caps` names them:
 | Coordinate input | `coordinates` | `click_xy`, `hover_xy`, `move_xy`, `scroll_xy`, `drag`, `resize` |
 | Isolated contexts | `contexts` | `context_list`, `context_create`, `context_select`, `context_close` |
 | Request mocking | `routing` | `route_fulfill`, `route_abort`, `route_continue`, `unroute`, `route_list` |
+| Attaching to a running browser | `--allow-attach` or `--connect` | `browser_attach` |
 
 ```console
 claude mcp add agito -- agito mcp --caps coordinates,contexts,routing
@@ -301,11 +303,69 @@ route_fulfill(url_pattern: "*/api/status.json", body: "{\"overall\": \"degraded\
 A redirect to a `file:` URL, and a `route_continue` to one, are refused unless the server
 allows file access.
 
+### Uploads
+
+`upload_files` sets a file input's files from local paths. Each file is read on the machine
+running the server, and must lie inside one of the roots the MCP client reported (the project
+folders it works in), or the server's working directory when the client reports none. A path
+that climbs out with `..`, or a link pointing out, is refused like any other.
+
 ### One call at a time
 
 The server runs tool calls one at a time, so two calls never act on the page at once. A client
 that sends several calls without waiting for their results cannot rely on them running in the
 order sent; to chain actions, wait for each result before sending the next, as agents do.
+
+## Driving a browser that is already running
+
+By default the server starts a browser and closes it when the session ends. Pointed at one
+somebody else started, it drives what is open there and leaves it running, which makes a
+signed-in profile, or a browser kept warm between runs, drivable:
+
+```console
+google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/agent-profile"
+claude mcp add agito -- agito mcp --connect http://127.0.0.1:9222
+```
+
+The session's `default` context is then the browser's own, with its open tabs; the first one
+is active. Nothing is emulated on it, so `--viewport`, `--user-agent`, `--locale` and
+`--timezone` do not apply there, nor do the options that describe starting a browser; the
+server says so on startup. If the connection drops, the next call connects again to the same
+endpoint. `tab_close`, and `context_close` with `--caps contexts`, act on somebody's working
+state here, though closing the default context only lets go of it.
+
+`browser_attach` attaches mid-session, for when the endpoint is not known when the client is
+configured. It is listed only with `--allow-attach` or `--connect`: a running browser may hold
+somebody's signed-in sessions, so which browser a session drives is the operator's decision.
+Attaching closes the browser the server started, and refs, mocks, logs and named contexts do
+not carry over.
+
+A debugging port gives complete control of the browser to anything that can reach it; keep it
+on loopback.
+
+## HTTP transport
+
+For remote clients, the same tools are served over Streamable HTTP:
+
+```console
+# Loopback only, no token needed
+agito mcp --http
+
+# Reachable from other machines: binding anything but loopback needs a token
+agito mcp --http --host 0.0.0.0 --port 8931 --token "$AGITO_MCP_TOKEN"
+```
+
+The endpoint is `http://host:port/mcp`. Each client session gets a browser of its own, closed
+when the session ends or after 30 minutes without a request. With a token, every request must
+carry `Authorization: Bearer <token>`, compared in constant time; without one, the server only
+answers requests addressed to a loopback host, which keeps web pages from reaching it through
+DNS rebinding.
+
+MCP protocol version 2026-07-28 has no sessions over HTTP, so a browser could not outlast a
+single request; the HTTP server offers versions up to 2025-11-25, which clients negotiate to.
+
+stdio inherits the trust of the user who started it. HTTP does not: treat the token as a
+credential, and prefer loopback or a trusted network.
 
 ## Options
 
@@ -323,12 +383,17 @@ order sent; to chain actions, wait for each result before sending the next, as a
 | `--settle MS` | `500` | How long an action waits for the page to show what it did |
 | `--dialogs` | `ask` | `ask` leaves a dialog for `handle_dialog`; `accept` or `dismiss` answers it at once |
 | `--caps GROUPS` | none | Optional tool groups: `coordinates`, `contexts`, `routing`. Also `AGITO_MCP_CAPS` |
-| `--allow-unrestricted-file-access` | off | Let tools open `file://` URLs |
+| `--allow-unrestricted-file-access` | off | Let tools open `file://` URLs, and upload files from anywhere |
+| `--connect ENDPOINT` | | Drive the browser already running at this debugging endpoint instead of starting one |
+| `--allow-attach` | off | List `browser_attach`; implied by `--connect` |
+| `--http` | off | Serve Streamable HTTP instead of stdio |
+| `--host`, `--port` | `127.0.0.1`, `8931` | Where `--http` listens |
+| `--token` | | The bearer token for `--http`; also `AGITO_MCP_TOKEN`. Required off loopback |
 
 Options left out fall back to [`agito.config.json`](reference/configuration.md) and `AGITO_*`
 variables, read from the directory the server starts in, as tests do.
 
-**`file://` is blocked** by default: a page could otherwise talk an agent into reading the
-machine's files back through a snapshot.
+**`file://` is blocked** by default, and uploads read only from the client's roots: a page
+could otherwise talk an agent into reading the machine's files back.
 
 Stdout carries the protocol, so the server writes its own messages to stderr.

@@ -15,14 +15,14 @@ run real browser tests.
 | 6 | Accessibility, performance, coverage, tracing, video | In progress: accessibility done |
 | 7 | CLI (`agito`) | Done; `run` settings in `agito.config.json` left |
 | 8 | Recorder, codegen, check-selectors | Not started |
-| 9 | MCP server | In progress: stdio, the always-available tools and the `--caps` groups; HTTP, the security policy and attaching next |
+| 9 | MCP server | Done, but for the recording group, `get_performance` and `generate_pom`, which wait for phases 6 and 8 |
 | 10 | Visual runner | Not started |
 
 ## Ported
 
 | Motus | agito |
 |---|---|
-| `MotusLauncher.LaunchAsync` / `ConnectAsync` | `agito::launch` / `agito::connect` |
+| `MotusLauncher.LaunchAsync` / `ConnectAsync`, adopting a connected browser's open tabs | `agito::launch` / `agito::connect`, `Browser::default_context` |
 | `LaunchOptions`, `ContextOptions` | same names; `Default` applies config and env |
 | `BrowserFinder`, `InstalledBrowsers`, `ChromiumArgs`, `CdpEndpointPoller` | `launch::{finder, args, endpoint}` |
 | `BrowserOutputDrain` | `launch::OutputTail` (stderr tail in launch errors) |
@@ -51,6 +51,7 @@ run real browser tests.
 | `motus run` (`TestRunner`, `TestDiscovery`, `ShardSelector`, console, JUnit and HTML reporters, `FlakeHistoryReporter`), `[Quarantine]` | `agito run` (`crates/agito-cli/src/run`), `#[agito::test(quarantine = "reason")]`, `harness::TestRecord` |
 | `motus shard merge` (`ShardMerger`) | `agito shard merge` |
 | `AccessibilityAuditHook`, `AccessibilityOptions`, `motus run --a11y` | `accessibility::hook`, `AccessibilityOptions` (`ContextOptions::accessibility`), `agito run --a11y` |
+| `SecurityPolicy` (reads), `McpServerHost` (stdio, HTTP), `BrowserTools` | `agito-mcp`: `policy`, `serve_stdio`, `serve_http`, `browser_attach` |
 | `Motus.Mcp`: `motus mcp`, `SnapshotSerializer`, `PageSnapshotService`, `FrameCollector`, `BrowserSessionManager`, `ActionRunner`, `ActionReport`, `DialogService`, `ConsoleService`, `NetworkService`, `ToolCapabilities`, the always-available tools and the coordinate, context and routing groups | `agito-mcp`: `agito mcp`, `snapshot`, `session`, `runner`, `tab`, `routes`, `caps` and `tools` |
 | `Frame.LocatorByBackendNodeId`, `BackendNodeIdSelectorStrategy` | `Frame::locator_by_backend_node_id`, `backend-node-id=` |
 | `AccessibilityTreeQuery`, `AccessibilitySnapshotAsync`, the collectors, `ContrastCalculator`, `AccessibilityRuleEngine`, the nine rules, `RunAccessibilityAuditAsync`, `ToPassAccessibilityAuditAsync`, `IAccessibilityRule` | `agito::accessibility`: `page.accessibility_snapshot`, `page.audit_accessibility`, `to_pass_accessibility_audit`, `AccessibilityRule` |
@@ -63,7 +64,7 @@ run real browser tests.
 ## Known gaps in the MVP
 
 - **Not yet ported:**
-  - From the page: touch input, natural mouse motion, the cursor overlay. Adopting tabs that were already open when connecting is not ported either.
+  - From the page: touch input, natural mouse motion, the cursor overlay.
   - Exposed bindings, permissions, geolocation, HTTP credentials.
   - Browser pool, heartbeat, and signal handlers.
   - Harness options `launch = fn`, `perf_budget(...)` and failure tracing.
@@ -229,7 +230,15 @@ run real browser tests.
   - `evaluate` also takes statements, returning the last one's value.
   - The routing tools install one route per context, consulted for every rule, so the
     newest-rule-wins order is the table's own rather than the engine's.
-  - Not yet: the `recording` group, which needs tracing and video.
+  - Not yet: the `recording` group, which needs tracing and video, and with it the output
+    directory, since nothing else writes files.
+  - The HTTP server offers protocol versions up to 2025-11-25, which keep sessions: under
+    2026-07-28 every request would get a server, and a browser, of its own.
+  - `upload_files` reads the files itself and hands the page their contents, so it works
+    against a browser on another machine too.
+  - Attaching adopts the browser's default context through `Browser::default_context`, which
+    applies no emulation to it; `--viewport`, `--user-agent`, `--locale` and `--timezone` are
+    reported as having no effect with `--connect`, besides the launch options.
   - Not yet: `get_performance` and `generate_pom`, which wait for performance metrics and
     code generation in agito itself.
 

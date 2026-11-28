@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use agito::BrowserChannel;
-use agito_mcp::{Capability, DialogPolicy, ServerOptions};
+use agito_mcp::{Capability, DialogPolicy, HttpOptions, ServerOptions};
 use anyhow::{Result, anyhow, bail};
 use clap::Args;
 
@@ -70,9 +70,36 @@ pub struct McpArgs {
     #[arg(long = "caps", value_name = "GROUPS")]
     caps: Vec<String>,
 
-    /// Let tools open file:// URLs.
+    /// Let tools open file:// URLs and read files from anywhere.
     #[arg(long)]
     allow_unrestricted_file_access: bool,
+
+    /// Drive the browser already running at this debugging endpoint (http://127.0.0.1:9222 or
+    /// its WebSocket URL) instead of starting one. It is never closed by the server.
+    #[arg(long, value_name = "ENDPOINT")]
+    connect: Option<String>,
+
+    /// List browser_attach, so an agent can attach to a running browser mid-session. Implied
+    /// by --connect.
+    #[arg(long)]
+    allow_attach: bool,
+
+    /// Serve Streamable HTTP for remote clients instead of stdio. Each client session gets
+    /// its own browser.
+    #[arg(long)]
+    http: bool,
+
+    /// The interface to bind with --http. Any but loopback needs --token.
+    #[arg(long, default_value = "127.0.0.1", requires = "http")]
+    host: std::net::IpAddr,
+
+    /// The port to listen on with --http.
+    #[arg(long, default_value_t = 8931, requires = "http")]
+    port: u16,
+
+    /// The bearer token every HTTP request must carry. Also AGITO_MCP_TOKEN.
+    #[arg(long, requires = "http")]
+    token: Option<String>,
 }
 
 fn parse_viewport(s: &str) -> Result<(u32, u32), String> {
@@ -101,6 +128,37 @@ pub async fn mcp(args: McpArgs) -> Result<()> {
         args.caps.join(",")
     };
     let capabilities = Capability::parse_list(&caps).map_err(|e| anyhow!("--caps: {e}"))?;
+    if args.connect.is_some() {
+        // These describe starting a browser, or emulating one, and an attached session drives
+        // the browser's own context as it is.
+        let unused: Vec<&str> = [
+            ("--headless", args.headless.is_some()),
+            ("--channel", args.channel.is_some()),
+            ("--executable-path", args.executable_path.is_some()),
+            ("--browser-arg", !args.browser_args.is_empty()),
+            ("--user-data-dir", args.user_data_dir.is_some()),
+            ("--viewport", args.viewport.is_some()),
+            ("--user-agent", args.user_agent.is_some()),
+            ("--locale", args.locale.is_some()),
+            ("--timezone", args.timezone.is_some()),
+        ]
+        .into_iter()
+        .filter_map(|(flag, given)| given.then_some(flag))
+        .collect();
+        if !unused.is_empty() {
+            eprintln!(
+                "agito mcp: {} describe{} starting or emulating a browser, so with --connect {} \
+                 no effect on the browser's own tabs",
+                unused.join(", "),
+                if unused.len() == 1 { "s" } else { "" },
+                if unused.len() == 1 {
+                    "it has"
+                } else {
+                    "they have"
+                }
+            );
+        }
+    }
     let options = ServerOptions {
         headless: args.headless,
         channel: args.channel,
@@ -116,11 +174,44 @@ pub async fn mcp(args: McpArgs) -> Result<()> {
         settle: args.settle.map(Duration::from_millis),
         dialogs: args.dialogs,
         capabilities,
+        connect: args.connect,
+        allow_attach: args.allow_attach,
         allow_unrestricted_file_access: args.allow_unrestricted_file_access,
     };
-    agito_mcp::serve_stdio(options)
-        .await
-        .map_err(|e| anyhow!("the MCP server stopped: {e}"))
+    if !args.http {
+        return agito_mcp::serve_stdio(options)
+            .await
+            .map_err(|e| anyhow!("the MCP server stopped: {e}"));
+    }
+    let http = HttpOptions {
+        host: args.host,
+        port: args.port,
+        token: args
+            .token
+            .or_else(|| std::env::var("AGITO_MCP_TOKEN").ok())
+            .filter(|t| !t.is_empty()),
+    };
+    agito_mcp::check_http(&http).map_err(|e| anyhow!(e))?;
+    let guarded = http.token.is_some();
+    agito_mcp::serve_http(
+        options,
+        http,
+        |address| {
+            eprintln!(
+                "agito mcp: serving Streamable HTTP at http://{address}/mcp{}",
+                if guarded {
+                    ", bearer token required"
+                } else {
+                    ""
+                }
+            );
+        },
+        async {
+            let _ = tokio::signal::ctrl_c().await;
+        },
+    )
+    .await
+    .map_err(|e| anyhow!("the MCP server stopped: {e}"))
 }
 
 #[cfg(test)]

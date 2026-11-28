@@ -8,6 +8,8 @@
 #![warn(missing_docs)]
 
 mod caps;
+mod http;
+mod policy;
 mod routes;
 mod runner;
 mod session;
@@ -23,6 +25,7 @@ use agito::{BrowserChannel, ContextOptions, LaunchOptions, Viewport};
 use rmcp::ServiceExt;
 
 pub use caps::Capability;
+pub use http::{HttpOptions, IDLE_TIMEOUT, check as check_http, serve_http};
 pub use tab::DialogPolicy;
 pub use tools::AgitoServer;
 
@@ -58,6 +61,13 @@ pub struct ServerOptions {
     pub settle: Option<Duration>,
     /// What becomes of a dialog a page raises. Default: left open for `handle_dialog`.
     pub dialogs: DialogPolicy,
+    /// Drive the browser already running at this debugging endpoint (`http://127.0.0.1:9222`
+    /// or its WebSocket URL) instead of starting one. It is never closed, and the options
+    /// that describe starting a browser do not apply.
+    pub connect: Option<String>,
+    /// List `browser_attach`, so an agent can attach to a running browser mid-session.
+    /// Implied by `connect`.
+    pub allow_attach: bool,
     /// The optional tool groups to list besides the always-available tools.
     pub capabilities: Vec<Capability>,
     /// Let tools open `file://` URLs.

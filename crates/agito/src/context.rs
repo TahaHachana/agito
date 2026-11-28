@@ -205,6 +205,9 @@ pub struct BrowserContext {
 pub(crate) struct ContextInner {
     pub browser: Browser,
     pub id: String,
+    /// The browser's own default context, adopted rather than created: closing lets go of it
+    /// instead of disposing it, and the user's settings, downloads included, are left alone.
+    pub adopted: bool,
     pub options: ContextOptions,
     pub selectors: SelectorRegistry,
     pub hooks: Vec<Arc<dyn LifecycleHook>>,
@@ -220,6 +223,9 @@ pub(crate) struct ContextInner {
     creating: tokio::sync::Mutex<()>,
     /// Targets `new_page` created and is waiting for, by target id.
     claims: Mutex<HashMap<String, oneshot::Sender<Result<Page>>>>,
+    /// For an adopted context, the tabs that were open when it was adopted: nothing else
+    /// asked for them, and pages live only while something holds them.
+    held: Mutex<Vec<Page>>,
     page_events: broadcast::Sender<Page>,
     page_handlers: Mutex<Vec<PageHandler>>,
     /// Where this context's downloads land, named by download id; removed with the context.
@@ -248,20 +254,31 @@ impl BrowserContext {
         id: String,
         options: ContextOptions,
     ) -> Result<Self> {
+        Self::create_with(browser, id, options, false).await
+    }
+
+    pub(crate) async fn create_with(
+        browser: Browser,
+        id: String,
+        options: ContextOptions,
+        adopted: bool,
+    ) -> Result<Self> {
         let host = PluginHost::load(&browser.inner.plugins).await?;
         let download_dir = crate::files::temp_dir("downloads")?;
-        let behavior = browser
-            .browser_session()
-            .send(&cdp_browser::SetDownloadBehaviorParams {
-                behavior: cdp_browser::SetDownloadBehaviorParamsBehavior::AllowAndName,
-                browser_context_id: Some(id.clone()),
-                download_path: Some(download_dir.to_string_lossy().into_owned()),
-                events_enabled: Some(true),
-            })
-            .await;
-        if let Err(e) = behavior {
-            let _ = std::fs::remove_dir_all(&download_dir);
-            return Err(e);
+        if !adopted {
+            let behavior = browser
+                .browser_session()
+                .send(&cdp_browser::SetDownloadBehaviorParams {
+                    behavior: cdp_browser::SetDownloadBehaviorParamsBehavior::AllowAndName,
+                    browser_context_id: Some(id.clone()),
+                    download_path: Some(download_dir.to_string_lossy().into_owned()),
+                    events_enabled: Some(true),
+                })
+                .await;
+            if let Err(e) = behavior {
+                let _ = std::fs::remove_dir_all(&download_dir);
+                return Err(e);
+            }
         }
         let accessibility_found = Arc::new(Mutex::new(Vec::new()));
         let mut hooks = host.hooks();
@@ -274,6 +291,7 @@ impl BrowserContext {
         let inner = Arc::new(ContextInner {
             browser,
             id,
+            adopted,
             options,
             selectors: host.selectors(),
             hooks,
@@ -286,6 +304,7 @@ impl BrowserContext {
             closed: AtomicBool::new(false),
             creating: tokio::sync::Mutex::new(()),
             claims: Mutex::new(HashMap::new()),
+            held: Mutex::new(Vec::new()),
             page_events: broadcast::channel(64).0,
             page_handlers: Mutex::new(Vec::new()),
             download_dir,
@@ -432,6 +451,37 @@ impl BrowserContext {
         if let Some(tx) = claim {
             let _ = tx.send(Ok(page));
         }
+    }
+
+    /// Takes up a tab already open in an adopted context, and holds it.
+    pub(crate) async fn adopt_open_tab(&self, target_id: &str) -> Result<()> {
+        let (tx, rx) = oneshot::channel();
+        self.inner
+            .claims
+            .lock()
+            .unwrap()
+            .insert(target_id.to_owned(), tx);
+        // Attaching makes the browser announce the tab, and this context, registered now,
+        // takes it up as it does any page that attaches, answering the claim.
+        let attached = self
+            .inner
+            .browser
+            .browser_session()
+            .send(&target::AttachToTargetParams {
+                target_id: target_id.to_owned(),
+                flatten: Some(true),
+            })
+            .await;
+        if let Err(e) = attached {
+            self.inner.claims.lock().unwrap().remove(target_id);
+            return Err(e);
+        }
+        let page = tokio::time::timeout(Duration::from_secs(10), rx)
+            .await
+            .map_err(|_| Error::other(format!("Tab {target_id} did not attach in time.")))?
+            .map_err(|_| Error::other(format!("Tab {target_id} went away while attaching.")))??;
+        self.inner.held.lock().unwrap().push(page);
+        Ok(())
     }
 
     fn page_by_target(&self, target_id: &str) -> Option<Page> {
@@ -740,7 +790,10 @@ impl BrowserContext {
         for page in self.pages() {
             page.inner.mark_closed();
         }
-        let result = if self.inner.browser.inner.connection.is_closed() {
+        self.inner.held.lock().unwrap().clear();
+        // The browser's own context is somebody's working state: let go of it, and leave its
+        // windows open.
+        let result = if self.inner.adopted || self.inner.browser.inner.connection.is_closed() {
             Ok(())
         } else {
             self.inner

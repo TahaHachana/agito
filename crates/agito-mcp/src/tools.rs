@@ -10,7 +10,9 @@ use agito::{ClickOptions, ElementState, Locator, MouseButton, ScreenshotOptions}
 use base64::Engine;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, ContentBlock, Implementation, ServerCapabilities, ServerConfig};
+use rmcp::model::{
+    CallToolResult, ContentBlock, Implementation, ProtocolVersion, ServerCapabilities, ServerConfig,
+};
 use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -105,6 +107,8 @@ pub struct AgitoServer {
     /// could land before the snapshot naming its ref.
     calls: Arc<Mutex<()>>,
     tool_router: ToolRouter<Self>,
+    /// Whether to offer only the protocol versions that have sessions; see `for_http`.
+    sessions_only: bool,
 }
 
 impl AgitoServer {
@@ -112,6 +116,12 @@ impl AgitoServer {
     /// It lists the always-available tools, and the groups `options.capabilities` names.
     pub fn new(options: Arc<ServerOptions>) -> Self {
         let mut tool_router = Self::tool_router();
+        // Which browser a session drives is the operator's decision: one already running may
+        // hold somebody's signed-in sessions. A tool that refuses every call would only teach
+        // an agent to keep trying it, so without leave it is not listed at all.
+        if options.allow_attach || options.connect.is_some() {
+            tool_router += Self::attach_tools();
+        }
         for capability in &options.capabilities {
             if tool_router.has_route(group_marker(*capability)) {
                 continue;
@@ -127,7 +137,16 @@ impl AgitoServer {
             calls: Arc::new(Mutex::new(())),
             options,
             tool_router,
+            sessions_only: false,
         }
+    }
+
+    /// The same server, offering only protocol versions up to 2025-11-25. From 2026-07-28,
+    /// HTTP has no sessions and every request would get a server, and so a browser, of its
+    /// own; earlier versions keep a session, and with it the browser, across requests.
+    pub fn for_http(mut self) -> Self {
+        self.sessions_only = true;
+        self
     }
 
     pub(crate) fn session(&self) -> Arc<Mutex<Session>> {
@@ -408,6 +427,17 @@ pub struct PressArgs {
     key: String,
     #[schemars(description = SNAPSHOT_AFTER)]
     snapshot: Option<bool>,
+}
+
+/// `upload_files`'s arguments.
+#[derive(Deserialize, JsonSchema)]
+pub struct UploadArgs {
+    /// The file input to set. A ref from the latest snapshot or a selector.
+    r#ref: String,
+    /// Local file paths to upload. Each is read on the machine running the server, and must
+    /// sit inside a directory the server is allowed to read: the MCP client's roots, or the
+    /// server's working directory when the client reports none.
+    paths: Vec<String>,
 }
 
 /// `press_key`'s arguments.
@@ -799,6 +829,54 @@ impl AgitoServer {
         let key = args.key;
         self.on_element(&args.r#ref, done, args.snapshot, async move |locator| {
             locator.press(&key).await
+        })
+        .await
+    }
+
+    #[tool(
+        name = "upload_files",
+        description = "Sets the files of a file input addressed by a ref or a selector, reading \
+            each from a local file path. Paths must lie inside the MCP client's roots, or the \
+            server's working directory when the client reports none.",
+        annotations(title = "Upload files", destructive_hint = true)
+    )]
+    async fn upload_files(
+        &self,
+        Parameters(args): Parameters<UploadArgs>,
+        peer: rmcp::Peer<rmcp::RoleServer>,
+    ) -> CallToolResult {
+        if args.paths.is_empty() {
+            return error("paths is required: name at least one file.");
+        }
+        let roots = if self.options.allow_unrestricted_file_access {
+            None
+        } else {
+            Some(crate::policy::read_roots(&peer).await)
+        };
+        let mut files = Vec::new();
+        for path in &args.paths {
+            let real = match &roots {
+                None => std::path::PathBuf::from(path),
+                Some(roots) => match crate::policy::check_read(path, roots) {
+                    Ok(real) => real,
+                    Err(refusal) => return error(refusal),
+                },
+            };
+            // Read here rather than handed over as a path, so a browser on another machine
+            // gets the file too.
+            let contents = match std::fs::read(&real) {
+                Ok(contents) => contents,
+                Err(e) => return error(format!("Could not read file '{path}': {e}")),
+            };
+            let name = real
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| path.clone());
+            files.push(agito::FilePayload::new(name, contents));
+        }
+        let done = format!("Uploaded {} file(s) to {}", files.len(), args.r#ref);
+        self.on_element(&args.r#ref, done, None, async move |locator| {
+            locator.set_input_files(files).await
         })
         .await
     }
@@ -1537,13 +1615,26 @@ impl AgitoServer {
     async fn browser_status(&self) -> CallToolResult {
         let session = self.session.lock().await;
         if !session.is_browser_launched() {
-            return text("No browser yet. The first tool call that needs one will start it.");
+            return text(match session.endpoint() {
+                Some(endpoint) => format!(
+                    "No browser yet. The first tool call that needs one will attach to {endpoint}."
+                ),
+                None => "No browser yet. The first tool call that needs one will start it.".into(),
+            });
         }
         let contexts = session.context_names().len();
         let tabs = session.tabs().len();
+        let driving = match session.endpoint() {
+            Some(endpoint) => format!(
+                "Attached to a running browser at {endpoint}; it will keep running after this \
+                 session."
+            ),
+            None => "Driving a browser started by this server; it will be closed when this \
+                     session ends."
+                .to_owned(),
+        };
         text(format!(
-            "Driving a browser started by this server; it will be closed when this session \
-             ends.\n{contexts} context{} (active: {}), {tabs} tab{} open.",
+            "{driving}\n{contexts} context{} (active: {}), {tabs} tab{} open.",
             if contexts == 1 { "" } else { "s" },
             session.active_context_name(),
             if tabs == 1 { "" } else { "s" },
@@ -1585,6 +1676,16 @@ impl ServerHandler for AgitoServer {
             }
         }
         Ok(response)
+    }
+
+    fn supported_protocol_versions(&self) -> std::borrow::Cow<'static, [ProtocolVersion]> {
+        if self.sessions_only {
+            std::borrow::Cow::Borrowed(ProtocolVersion::known_up_to(
+                &ProtocolVersion::LATEST_WITH_INITIALIZE,
+            ))
+        } else {
+            std::borrow::Cow::Borrowed(ProtocolVersion::KNOWN_VERSIONS)
+        }
     }
 
     fn get_info(&self) -> ServerConfig {
