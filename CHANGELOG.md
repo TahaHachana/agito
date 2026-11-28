@@ -13,6 +13,13 @@
   take, clicks, typing, keys, selects, checkboxes, waits, `evaluate`, screenshots and tabs. It
   starts its browser on first use and starts another if it crashes. `file://` URLs are
   blocked unless `--allow-unrestricted-file-access` is passed.
+- `agito mcp` reports what each action changed (where the page went, tabs opened, console
+  errors, retired refs) after a settle wait (`--settle`), handles JavaScript dialogs
+  (`handle_dialog`, `--dialogs`), keeps each tab's console and network logs
+  (`console_messages`, `network_requests`, `network_request`), prints frames inside page
+  snapshots with frame-prefixed refs (`frame_list`, `frame_select`), and audits pages
+  (`audit_accessibility`).
+- `Frame::owner_backend_node_id`, the backend node id of the element holding a frame.
 - `Page::locator_by_backend_node_id` and `Frame::locator_by_backend_node_id`, and the
   `backend-node-id=` selector, for the element an accessibility node names.
 - Automatic accessibility audits. With `accessibility.mode` set to `warn` or `enforce` in

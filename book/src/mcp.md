@@ -64,10 +64,13 @@ printf '%s\n' \
 | Area | Tools |
 |---|---|
 | Navigation | `navigate`, `go_back`, `go_forward`, `reload` |
-| Perception | `snapshot`, `screenshot` |
+| Perception | `snapshot`, `screenshot`, `audit_accessibility` |
 | Interaction | `click`, `type`, `press`, `press_key`, `hover`, `focus`, `clear`, `select_option`, `set_checked`, `scroll_into_view`, `wait_for_element`, `wait_for` |
 | Tabs | `tab_list`, `tab_open`, `tab_select`, `tab_close` |
+| Frames | `frame_list`, `frame_select` |
 | Scripting | `evaluate` |
+| Dialogs | `handle_dialog` |
+| Logs | `console_messages`, `network_requests`, `network_request` |
 | Browser | `browser_status` |
 
 A tool that fails returns an error result whose message says what to do next, such as taking a
@@ -100,7 +103,8 @@ quotes, then attributes in brackets.
 - **Attributes:** `[level=N]` on headings, `[url=...]` on links, `[value="..."]` on form
   controls, and the states `[disabled]`, `[readonly]`, `[required]`, `[checked]`,
   `[selected]`, `[expanded]` and `[pressed]` when set.
-- **Folding:** text is folded into the element it names, so `button "Pay"` is one line.
+- **Folding:** text is folded into the element it names, so `button "Pay"` is one line, and
+  a field's typed text is shown once, as its value.
   Text that adds to the name follows a colon (`listitem: Item one`), and text between elements
   gets a `text:` line of its own. An unnamed wrapper with a single child steps aside for it.
 
@@ -109,6 +113,33 @@ quotes, then attributes in brackets.
 Refs belong to the latest snapshot of the page. A navigation retires them, so take a new
 snapshot after one, or pass `snapshot: true` to `navigate`, `click`, `type` and the other
 actions to get one appended to the result.
+
+### Frames
+
+A page snapshot prints the frames the page hosts, each inside the `iframe` element holding
+it, so a payment form in a frame reads like the rest of the page:
+
+```text
+- main
+  - heading "Checkout" [ref=e2] [level=1]
+  - Iframe "Payment" [ref=e3] [frame=1]
+    - textbox "Card number" [ref=f1e1]
+    - button "Pay" [ref=f1e2]
+```
+
+`[frame=N]` is the frame's index, and the prefix on every ref inside it: `f1e2` is the second
+addressable element of frame 1. Pass it to `click` or `type` like any other ref; no frame needs
+selecting first. A frame inside a frame prints inside its own parent, with its own index.
+
+Ten frames are printed by default; `max_frames` on `snapshot` changes that. A frame past the
+limit, or whose element is hidden, is left out, and the snapshot says how many were.
+
+- **`frame_list`** lists the frames with their depth: index 0 is the page, and each frame
+  follows the frame holding it.
+- **`frame_select`** scopes `snapshot`, `evaluate`, selectors and the `wait_for` text waits to
+  one frame; `frame_select 0` returns to the page. A scoped snapshot describes that frame on
+  its own, with plain `e1`, `e2` refs. The scope resets when the page navigates or another tab
+  is selected.
 
 ### Refs or selectors
 
@@ -132,6 +163,71 @@ snapshot no longer holds is reported as stale, not run as a selector that matche
 - **`wait_for`** takes one of `time` (milliseconds), `text` or `text_gone`.
 - **`screenshot`** captures the viewport, or the whole page with `full_page: true`.
 
+### What an action reports
+
+An action returns one line saying what it did, and under it a row for anything it changed:
+
+```text
+Clicked e3
+Page: https://shop.test/checkout | Checkout
+New tab opened: [1] https://shop.test/terms
+Console: 1 error, 1 page error. Read them with console_messages since=14.
+Refs from the last snapshot no longer address this page: it navigated. Take a new snapshot.
+```
+
+The rows say where the page went or what it renamed itself to, tabs the action opened (with
+the index `tab_select` takes), errors and uncaught page errors it logged (with the cursor that
+reads exactly those), a dialog left open, and refs retired by the page or one of its frames
+navigating. An action that changes nothing surprising stays one line.
+
+The browser accepts a click before the page has acted on it, so the result waits briefly for
+the page to show what the click did: 500 ms by default, ending early when a tab appears.
+`--settle` changes the wait; `--settle 0` reports the instant the action returns.
+
+### Dialogs
+
+A JavaScript dialog stops the page answering anything until it is handled. An action that
+raises one comes back at once and says so:
+
+```text
+The action opened a confirm dialog: "Delete this?". Call handle_dialog to accept or dismiss it.
+```
+
+Until it is answered, every result starts with a line saying the dialog is open, and actions
+and page reads (`snapshot`, `evaluate`, `screenshot`) are refused rather than sent to a page
+that cannot answer. `handle_dialog` takes `accept`, and for a prompt, the `text` to enter. The
+action that raised the dialog finishes once it is answered.
+
+`--dialogs accept` or `--dialogs dismiss` answers every dialog at once instead.
+
+### Console and network logs
+
+Each tab keeps the last 250 console messages and uncaught errors (`console_messages`), and the
+last 250 finished or failed requests (`network_requests`), from the moment it opened. Reading
+leaves them in place. Each read ends with `next=N`; pass it as `since` to read only what came
+after:
+
+```text
+console_messages()
+  -> [error] Cannot read properties of null
+     [pageerror] Error: uncaught boom
+     next=3
+```
+
+`network_requests` numbers each line, `[5] POST 201 https://shop.test/api/cart (Fetch)`, and
+`network_request` takes that number for the request's headers, request body, and response
+body while the browser still has it. Bodies that are not text, or longer than 4000
+characters, are described rather than shown.
+
+### Accessibility audits
+
+`audit_accessibility` runs the [accessibility rules](writing/accessibility.md) on the page and
+its frames. The text lists each violation; the structured result gives each one's `ruleId`,
+`severity`, `message`, `nodeRole`, `nodeName`, `nodeText`, `selector`, the `frameUrl` of a
+frame, and a `ref` when the element took one, so an agent can act on it directly. It takes a
+fresh snapshot to do so, which replaces the refs in hand. `min_severity` (`error`, `warning` or
+`info`) leaves out the less severe.
+
 ### One call at a time
 
 The server runs tool calls one at a time, so two calls never act on the page at once. A client
@@ -151,6 +247,8 @@ order sent; to chain actions, wait for each result before sending the next, as a
 | `--user-agent`, `--locale`, `--timezone` | browser defaults | What every page reports |
 | `--timeout MS` | the context's action timeout | How long an element action waits for its element |
 | `--navigation-timeout MS` | the context's navigation timeout | How long a navigation waits |
+| `--settle MS` | `500` | How long an action waits for the page to show what it did |
+| `--dialogs` | `ask` | `ask` leaves a dialog for `handle_dialog`; `accept` or `dismiss` answers it at once |
 | `--allow-unrestricted-file-access` | off | Let tools open `file://` URLs |
 
 Options left out fall back to [`agito.config.json`](reference/configuration.md) and `AGITO_*`

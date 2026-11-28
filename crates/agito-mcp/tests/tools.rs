@@ -2,84 +2,13 @@
 //! `--features integration`.
 #![cfg(feature = "integration")]
 
-use agito_mcp::ServerOptions;
-use rmcp::ServiceExt;
-use rmcp::model::{CallToolRequestParams, CallToolResult};
-use rmcp::service::{RoleClient, RunningService};
-use serde_json::{Value, json};
-use tokio::task::JoinHandle;
+mod common;
 
-/// A client connected to a fresh server, and the server's task.
-struct Harness {
-    client: RunningService<RoleClient, ()>,
-    server: JoinHandle<()>,
-}
-
-impl Harness {
-    async fn start() -> Harness {
-        Harness::with(ServerOptions::default()).await
-    }
-
-    async fn with(options: ServerOptions) -> Harness {
-        let (server_io, client_io) = tokio::io::duplex(1 << 20);
-        let server = tokio::spawn(async move {
-            let (reader, writer) = tokio::io::split(server_io);
-            agito_mcp::serve(options, reader, writer)
-                .await
-                .expect("the server runs until the client leaves");
-        });
-        let client = ().serve(client_io).await.expect("the client connects");
-        Harness { client, server }
-    }
-
-    async fn call(&self, tool: &str, args: Value) -> CallToolResult {
-        let Value::Object(args) = args else {
-            panic!("arguments are an object")
-        };
-        self.client
-            .call_tool(CallToolRequestParams::new(tool.to_owned()).with_arguments(args))
-            .await
-            .unwrap_or_else(|e| panic!("{tool} reached the server: {e}"))
-    }
-
-    /// Calls `tool`, which must succeed, and returns its text.
-    async fn ok(&self, tool: &str, args: Value) -> String {
-        let result = self.call(tool, args).await;
-        let text = text_of(&result);
-        assert_ne!(result.is_error, Some(true), "{tool} failed: {text}");
-        text
-    }
-
-    /// Calls `tool`, which must fail, and returns its message.
-    async fn err(&self, tool: &str, args: Value) -> String {
-        let result = self.call(tool, args).await;
-        let text = text_of(&result);
-        assert_eq!(result.is_error, Some(true), "{tool} succeeded: {text}");
-        text
-    }
-
-    /// Disconnects and waits for the server to close its browser.
-    async fn stop(self) {
-        self.client.cancel().await.expect("the client disconnects");
-        self.server.await.expect("the server shuts down cleanly");
-    }
-}
-
-fn text_of(result: &CallToolResult) -> String {
-    result
-        .content
-        .first()
-        .and_then(|c| c.as_text())
-        .map(|t| t.text.clone())
-        .unwrap_or_default()
-}
-
-fn page(body: &str) -> String {
-    format!("data:text/html,<html lang=en><title>Shop</title>{body}</html>")
-}
+use common::{Harness, page};
+use serde_json::json;
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_catalog_lists_the_core_tools() {
+async fn the_catalog_lists_the_always_available_tools() {
     let h = Harness::start().await;
     let mut names: Vec<String> = h
         .client
@@ -93,15 +22,22 @@ async fn the_catalog_lists_the_core_tools() {
     assert_eq!(
         names,
         [
+            "audit_accessibility",
             "browser_status",
             "clear",
             "click",
+            "console_messages",
             "evaluate",
             "focus",
+            "frame_list",
+            "frame_select",
             "go_back",
             "go_forward",
+            "handle_dialog",
             "hover",
             "navigate",
+            "network_request",
+            "network_requests",
             "press",
             "press_key",
             "reload",
@@ -240,7 +176,7 @@ async fn mistakes_come_back_as_guidance() {
         .await;
     let message = h.err("click", json!({ "ref": "e2" })).await;
     assert!(
-        message.starts_with("No snapshot has been taken."),
+        message.starts_with("The page navigated since the last snapshot"),
         "{message}"
     );
 

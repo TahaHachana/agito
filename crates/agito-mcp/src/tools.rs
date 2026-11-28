@@ -5,7 +5,8 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use agito::{ClickOptions, ElementState, Frame, Locator, MouseButton, Page, ScreenshotOptions};
+use agito::accessibility::{AuditOptions, Severity};
+use agito::{ClickOptions, ElementState, Locator, MouseButton, ScreenshotOptions};
 use base64::Engine;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
@@ -13,10 +14,13 @@ use rmcp::model::{CallToolResult, ContentBlock, Implementation, ServerCapabiliti
 use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 use schemars::JsonSchema;
 use serde::Deserialize;
+use serde_json::json;
 use tokio::sync::Mutex;
 
-use crate::ServerOptions;
-use crate::session::{Session, SnapshotError, TargetError};
+use crate::runner::{self, Guarded, Report, Work, describe};
+use crate::session::{Session, SnapshotError, TargetError, frame_order};
+use crate::tab::{Slice, Tab, dialog_pending};
+use crate::{DEFAULT_SETTLE, ServerOptions};
 
 /// How every tool describes the element it acts on.
 const TARGET: &str = "A ref from the latest snapshot (e5, or f1e5 for an element inside frame 1), \
@@ -25,8 +29,11 @@ const TARGET: &str = "A ref from the latest snapshot (e5, or f1e5 for an element
 
 const SNAPSHOT_AFTER: &str = "Append a snapshot of the page after the action.";
 
-/// How long a result waits for a page to say what it is called.
-const TITLE_TIMEOUT: Duration = Duration::from_secs(2);
+const SINCE: &str =
+    "Return only entries from this sequence number onwards. Omit to read everything the log holds.";
+
+/// The longest response body `network_request` shows.
+const BODY_LIMIT: usize = 4000;
 
 fn text(message: impl Into<String>) -> CallToolResult {
     CallToolResult::success(vec![ContentBlock::text(message.into())])
@@ -36,22 +43,13 @@ fn error(message: impl Into<String>) -> CallToolResult {
     CallToolResult::error(vec![ContentBlock::text(message.into())])
 }
 
-/// The page's title, or `None` when it will not say within [`TITLE_TIMEOUT`]: a title is a
-/// nicety, not worth delaying or failing the call that was only naming the page.
-async fn try_title(page: &Page) -> Option<String> {
-    match tokio::time::timeout(TITLE_TIMEOUT, page.title()).await {
-        Ok(Ok(title)) if !title.is_empty() => Some(title),
-        _ => None,
-    }
-}
-
-/// A page as `url | title`, or its URL alone.
-async fn describe(page: &Page) -> String {
-    let url = page.url();
-    match try_title(page).await {
-        Some(title) => format!("{url} | {title}"),
-        None => url,
-    }
+/// The first text block of a result.
+fn first_text(result: &CallToolResult) -> &str {
+    result
+        .content
+        .first()
+        .and_then(|c| c.as_text())
+        .map_or("", |t| t.text.as_str())
 }
 
 /// Refuses a `file:` URL unless the server allows it: a page could otherwise talk an agent
@@ -66,14 +64,35 @@ fn refuse_url(options: &ServerOptions, url: &str) -> Option<String> {
     })
 }
 
+/// A log read as text: a note when entries dropped off, the entries, and `next=N`.
+fn render_log<T>(slice: Slice<T>, line: impl Fn(u64, &T) -> String, nothing: String) -> String {
+    let mut out = String::new();
+    if slice.dropped > 0 {
+        out.push_str(&format!(
+            "{} earlier entries are no longer in the log.\n",
+            slice.dropped
+        ));
+    }
+    if slice.entries.is_empty() {
+        out.push_str(&nothing);
+        out.push('\n');
+    }
+    for (seq, entry) in &slice.entries {
+        out.push_str(&line(*seq, entry));
+        out.push('\n');
+    }
+    out.push_str(&format!("next={}", slice.next));
+    out
+}
+
 /// The `agito mcp` server: one browser session, and the tools that drive it.
 #[derive(Clone)]
 pub struct AgitoServer {
     options: Arc<ServerOptions>,
     session: Arc<Mutex<Session>>,
-    /// Held for the whole of each tool call, so calls run one at a time in the order they
-    /// arrived. MCP lets a client send calls without waiting, and agents do issue several at
-    /// once; run together, a click could land before the snapshot naming its ref.
+    /// Held for the whole of each tool call, so calls run one at a time. MCP lets a client
+    /// send calls without waiting, and agents do issue several at once; run together, a click
+    /// could land before the snapshot naming its ref.
     calls: Arc<Mutex<()>>,
     tool_router: ToolRouter<Self>,
 }
@@ -93,68 +112,113 @@ impl AgitoServer {
         self.session.clone()
     }
 
-    async fn page(&self) -> Result<Page, CallToolResult> {
+    fn settle(&self) -> Duration {
+        self.options.settle.unwrap_or(DEFAULT_SETTLE)
+    }
+
+    /// The active tab, opened if there is none.
+    async fn tab(&self) -> Result<Tab, CallToolResult> {
         self.session
             .lock()
             .await
-            .active_page()
+            .active_tab()
             .await
             .map_err(|e| error(format!("Could not open a page: {e}")))
     }
 
-    /// The active page and a locator for `target` on it.
-    async fn target(&self, target: &str) -> Result<(Page, Locator), CallToolResult> {
+    /// The active tab and a locator for `target` on it. A selector is searched in the
+    /// selected frame; a ref keeps addressing the document it was read from.
+    async fn target(&self, target: &str) -> Result<(Tab, Locator), CallToolResult> {
         if target.trim().is_empty() {
             return Err(error(
                 "ref is required: pass a ref from the latest snapshot or a selector.",
             ));
         }
-        let mut session = self.session.lock().await;
-        let page = session
-            .active_page()
-            .await
-            .map_err(|e| error(format!("Could not open a page: {e}")))?;
-        let snapshot = session.snapshot_of(&page);
-        drop(session);
-        let locator = snapshot
+        let tab = self.tab().await?;
+        let frame = tab.state.frame();
+        let locator = tab
+            .state
+            .snapshot
             .lock()
             .await
-            .resolve(&page, target, None::<&Frame>)
+            .resolve(&tab.page, target, frame.as_ref())
             .map_err(|e| error(e.message()))?;
-        Ok((page, locator))
+        Ok((tab, locator))
     }
 
-    /// Takes a snapshot of `page` and renders it as a tool's text.
+    /// Takes a snapshot of the tab, of its selected frame when one is, and renders it.
     async fn snapshot_text(
         &self,
-        page: &Page,
+        tab: &Tab,
         root_ref: Option<&str>,
         max_depth: Option<usize>,
+        max_frames: Option<usize>,
     ) -> Result<String, String> {
-        let state = self.session.lock().await.snapshot_of(page);
-        let mut state = state.lock().await;
-        match state.take(page, None, root_ref, max_depth).await {
-            Ok((text, None)) => Ok(text),
+        let frame = tab.state.frame();
+        let mut state = tab.state.snapshot.lock().await;
+        match state
+            .take(&tab.page, frame, root_ref, max_depth, max_frames)
+            .await
+        {
+            // Said on every scoped snapshot, since frame_select is often several calls back.
             Ok((text, Some(frame))) => Ok(format!("Scoped to frame {}\n\n{text}", frame.url())),
-            Err(SnapshotError::Target(TargetError::NoSnapshot)) => {
-                Err("No snapshot has been taken. Call snapshot without root_ref first.".into())
-            }
+            Ok((text, None)) => Ok(text),
             Err(SnapshotError::Target(TargetError::Stale(r))) => Err(format!(
                 "Ref '{r}' is not in the latest snapshot. Take a full snapshot to refresh refs."
             )),
+            Err(SnapshotError::Target(_)) => {
+                Err("No snapshot has been taken. Call snapshot without root_ref first.".into())
+            }
             Err(SnapshotError::Browser(e)) => Err(format!("Snapshot failed: {e}")),
         }
     }
 
-    /// Finishes an action's result: `message`, then a snapshot when one was asked for.
-    async fn finish(&self, page: &Page, message: String, snapshot: Option<bool>) -> CallToolResult {
-        if snapshot != Some(true) {
-            return text(message);
+    /// Runs `work`, which reads the page the way snapshot or evaluate do: refused while a
+    /// dialog is open, and cut short if one opens.
+    async fn read<F>(&self, tab: &Tab, work: F) -> CallToolResult
+    where
+        F: Future<Output = Work> + Send + 'static,
+    {
+        match runner::guarded(tab, work).await {
+            Err(pending) => error(pending),
+            Ok(Guarded::Interrupted(notice)) => text(notice),
+            Ok(Guarded::Done(Ok(message))) => text(message),
+            Ok(Guarded::Done(Err(message))) => error(message),
         }
-        match self.snapshot_text(page, None, None).await {
-            Ok(tree) => text(format!("{message}\n\nSnapshot:\n{tree}")),
-            Err(e) => text(format!("{message}\n\nThe snapshot after it failed: {e}")),
+    }
+
+    /// Runs an action: guarded against dialogs, then reported (what changed), then followed
+    /// by a snapshot when one was asked for.
+    async fn act<F>(&self, tab: Tab, snapshot: Option<bool>, work: F) -> CallToolResult
+    where
+        F: Future<Output = Work> + Send + 'static,
+    {
+        let report = Report::begin(&self.session, &tab, self.settle()).await;
+        let message = match runner::guarded(&tab, work).await {
+            Err(pending) => return error(pending),
+            Ok(Guarded::Interrupted(notice)) => return text(notice),
+            Ok(Guarded::Done(Err(message))) => return error(message),
+            Ok(Guarded::Done(Ok(message))) => message,
+        };
+        let mut out = message.clone();
+        for row in report.rows(&message, &self.session, &tab).await {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str(&row);
         }
+        if snapshot == Some(true) {
+            out.push_str("\n\n");
+            if tab.state.pending_dialog().is_some() {
+                out.push_str("Snapshot not taken: the page is waiting on a dialog.");
+            } else {
+                match self.snapshot_text(&tab, None, None, None).await {
+                    Ok(tree) => out.push_str(&format!("Snapshot:\n{tree}")),
+                    Err(e) => out.push_str(&format!("Snapshot not taken: {e}")),
+                }
+            }
+        }
+        text(out)
     }
 
     /// Runs an action on the element `target` names and reports `done` when it succeeds.
@@ -166,42 +230,54 @@ impl AgitoServer {
         action: F,
     ) -> CallToolResult
     where
-        F: FnOnce(Locator) -> Fut,
-        Fut: Future<Output = agito::Result<()>>,
+        F: FnOnce(Locator) -> Fut + Send + 'static,
+        Fut: Future<Output = agito::Result<()>> + Send + 'static,
     {
-        let (page, locator) = match self.target(target).await {
+        let (tab, locator) = match self.target(target).await {
             Ok(found) => found,
             Err(result) => return result,
         };
-        match action(locator).await {
-            Ok(()) => self.finish(&page, done, snapshot).await,
-            Err(e) => error(format!("{target}: {e}")),
-        }
+        let target = target.to_owned();
+        self.act(tab, snapshot, async move {
+            action(locator)
+                .await
+                .map(|()| done)
+                .map_err(|e| format!("{target}: {e}"))
+        })
+        .await
     }
 
-    /// Runs a history navigation and reports where it went.
-    async fn history(
+    /// Runs a navigation, forgets the refs it retired, and reports where it went: `go`
+    /// returns the verb for the result's line, or `None` when there was nowhere to go and
+    /// `nowhere` says so instead.
+    async fn navigation<F, Fut>(
         &self,
         snapshot: Option<bool>,
-        verb: &str,
-        none: &str,
-        go: impl AsyncFnOnce(&Page) -> agito::Result<Option<agito::Response>>,
-    ) -> CallToolResult {
-        let page = match self.page().await {
-            Ok(page) => page,
+        failed: &'static str,
+        nowhere: &'static str,
+        go: F,
+    ) -> CallToolResult
+    where
+        F: FnOnce(Tab) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<Option<&'static str>, agito::Error>> + Send + 'static,
+    {
+        let tab = match self.tab().await {
+            Ok(tab) => tab,
             Err(result) => return result,
         };
-        match go(&page).await {
-            Ok(response) => {
-                self.session.lock().await.invalidate(&page);
-                let message = match response {
-                    None => none.to_owned(),
-                    Some(_) => format!("Navigated {verb} to {}", describe(&page).await),
-                };
-                self.finish(&page, message, snapshot).await
-            }
-            Err(e) => error(format!("Go {verb} failed: {e}")),
-        }
+        let moving = tab.clone();
+        self.act(tab, snapshot, async move {
+            let verb = go(moving.clone())
+                .await
+                .map_err(|e| format!("{failed}: {e}"))?;
+            let Some(verb) = verb else {
+                return Ok(nowhere.to_owned());
+            };
+            moving.state.snapshot.lock().await.retire();
+            moving.state.select_frame(None);
+            Ok(format!("{verb} {}", describe(&moving).await))
+        })
+        .await
     }
 }
 
@@ -230,6 +306,9 @@ pub struct SnapshotArgs {
     /// Limit how many levels deep the tree is rendered; 0 renders only the root. A frame's
     /// contents count as levels of the tree like anything else.
     max_depth: Option<usize>,
+    /// Limit how many frames are printed inside the page; 10 by default. Frames past the limit
+    /// are named by frame_list and read with frame_select.
+    max_frames: Option<usize>,
 }
 
 /// `screenshot`'s arguments.
@@ -330,9 +409,9 @@ pub struct WaitForElementArgs {
 pub struct WaitForArgs {
     /// Time to wait in milliseconds.
     time: Option<u64>,
-    /// Wait until this text appears anywhere on the page.
+    /// Wait until this text appears anywhere on the page or the scoped frame.
     text: Option<String>,
-    /// Wait until this text is gone from the page.
+    /// Wait until this text is gone from the page or the scoped frame.
     text_gone: Option<String>,
 }
 
@@ -342,7 +421,8 @@ pub struct EvaluateArgs {
     /// The JavaScript expression to evaluate.
     expression: String,
     /// The element to evaluate against, passed to the function as its argument and as `this`.
-    /// Omit to evaluate in the page. A ref from the latest snapshot or a selector.
+    /// Omit to evaluate in the page, or in the scoped frame. A ref from the latest snapshot or
+    /// a selector.
     r#ref: Option<String>,
 }
 
@@ -353,10 +433,10 @@ pub struct TabOpenArgs {
     url: Option<String>,
 }
 
-/// `tab_select`'s arguments.
+/// Arguments for the tools that take a tab or frame index.
 #[derive(Deserialize, JsonSchema)]
-pub struct TabSelectArgs {
-    /// Zero-based index of the tab to activate.
+pub struct IndexArgs {
+    /// Zero-based index, from tab_list or frame_list.
     index: usize,
 }
 
@@ -365,6 +445,37 @@ pub struct TabSelectArgs {
 pub struct TabCloseArgs {
     /// Zero-based index of the tab to close. Omit to close the active tab.
     index: Option<usize>,
+}
+
+/// `handle_dialog`'s arguments.
+#[derive(Deserialize, JsonSchema)]
+pub struct HandleDialogArgs {
+    /// True to accept the dialog, false to dismiss it.
+    accept: bool,
+    /// Text to enter in a prompt dialog when accepting. Ignored for alert and confirm.
+    text: Option<String>,
+}
+
+/// Arguments for the log readers.
+#[derive(Deserialize, JsonSchema)]
+pub struct SinceArgs {
+    #[schemars(description = SINCE)]
+    since: Option<u64>,
+}
+
+/// `network_request`'s arguments.
+#[derive(Deserialize, JsonSchema)]
+pub struct NetworkRequestArgs {
+    /// The sequence number of the request, as shown in square brackets by network_requests.
+    sequence: u64,
+}
+
+/// `audit_accessibility`'s arguments.
+#[derive(Deserialize, JsonSchema)]
+pub struct AuditArgs {
+    /// Only return violations at or above this severity: error, warning, or info. Omit to
+    /// return all severities.
+    min_severity: Option<String>,
 }
 
 fn parse_button(button: Option<&str>) -> Result<MouseButton, CallToolResult> {
@@ -403,10 +514,21 @@ fn element_function(expression: &str) -> String {
     )
 }
 
-/// Wraps a value under `result`: structured content must be an object, and one shape for every
-/// value keeps a single count as easy to read as a record.
-fn evaluation_result(value: serde_json::Value) -> CallToolResult {
-    CallToolResult::structured(serde_json::json!({ "result": value }))
+/// Whether a content type is worth showing as text.
+fn is_text(content_type: &str) -> bool {
+    let c = content_type.to_ascii_lowercase();
+    c.starts_with("text/")
+        || ["json", "xml", "javascript", "x-www-form-urlencoded"]
+            .iter()
+            .any(|t| c.contains(t))
+}
+
+fn severity_rank(severity: Severity) -> u8 {
+    match severity {
+        Severity::Error => 0,
+        Severity::Warning => 1,
+        Severity::Info => 2,
+    }
 }
 
 #[tool_router]
@@ -426,18 +548,17 @@ impl AgitoServer {
         if let Some(refusal) = refuse_url(&self.options, &args.url) {
             return error(refusal);
         }
-        let page = match self.page().await {
-            Ok(page) => page,
-            Err(result) => return result,
-        };
-        match page.goto(&args.url).await {
-            Ok(_) => {
-                self.session.lock().await.invalidate(&page);
-                let message = format!("Navigated to {}", describe(&page).await);
-                self.finish(&page, message, args.snapshot).await
-            }
-            Err(e) => error(format!("Navigation failed: {e}")),
-        }
+        let url = args.url;
+        self.navigation(
+            args.snapshot,
+            "Navigation failed",
+            "",
+            async move |tab: Tab| {
+                tab.page.goto(&url).await?;
+                Ok(Some("Navigated to"))
+            },
+        )
+        .await
     }
 
     #[tool(
@@ -447,11 +568,11 @@ impl AgitoServer {
         annotations(title = "Go back", destructive_hint = false)
     )]
     async fn go_back(&self, Parameters(args): Parameters<SnapshotAfterArgs>) -> CallToolResult {
-        self.history(
+        self.navigation(
             args.snapshot,
-            "back",
+            "Go back failed",
             "No previous history entry; the page did not change.",
-            async |page| page.go_back().await,
+            async |tab: Tab| Ok(tab.page.go_back().await?.map(|_| "Navigated back to")),
         )
         .await
     }
@@ -463,11 +584,11 @@ impl AgitoServer {
         annotations(title = "Go forward", destructive_hint = false)
     )]
     async fn go_forward(&self, Parameters(args): Parameters<SnapshotAfterArgs>) -> CallToolResult {
-        self.history(
+        self.navigation(
             args.snapshot,
-            "forward",
+            "Go forward failed",
             "No next history entry; the page did not change.",
-            async |page| page.go_forward().await,
+            async |tab: Tab| Ok(tab.page.go_forward().await?.map(|_| "Navigated forward to")),
         )
         .await
     }
@@ -478,28 +599,24 @@ impl AgitoServer {
         annotations(title = "Reload", destructive_hint = false)
     )]
     async fn reload(&self, Parameters(args): Parameters<SnapshotAfterArgs>) -> CallToolResult {
-        let page = match self.page().await {
-            Ok(page) => page,
-            Err(result) => return result,
-        };
-        match page.reload().await {
-            Ok(_) => {
-                self.session.lock().await.invalidate(&page);
-                self.finish(&page, format!("Reloaded {}", page.url()), args.snapshot)
-                    .await
-            }
-            Err(e) => error(format!("Reload failed: {e}")),
-        }
+        self.navigation(args.snapshot, "Reload failed", "", async |tab: Tab| {
+            tab.page.reload().await?;
+            Ok(Some("Reloaded"))
+        })
+        .await
     }
 
     #[tool(
         name = "snapshot",
-        description = "Returns a compact indented accessibility tree of the active page. \
-            Interactive, named, and focusable elements and iframes carry a ref (e1, e2, ...) that \
-            click and type use to address them, and those tools take a selector just as readily; \
-            other nodes are printed for context without a ref. Text is printed inline on its \
-            element's line, headings show [level=N], links show [url=...], and form controls show \
-            [value=\"...\"] and state flags.",
+        description = "Returns a compact indented accessibility tree of the active page, or of \
+            the scoped frame when one is selected. Interactive, named, and focusable elements and \
+            iframes carry a ref (e1, e2, ...) that click and type use to address them, and those \
+            tools take a selector just as readily; other nodes are printed for context without a \
+            ref. Text is printed inline on its element's line, headings show [level=N], links \
+            show [url=...], and form controls show [value=\"...\"] and state flags. A page tree \
+            contains the frames the page hosts, printed inside the iframe element that holds \
+            each and marked [frame=N]; refs inside frame 1 read f1e2 and act on that frame \
+            without selecting it first.",
         annotations(
             title = "Accessibility snapshot",
             read_only_hint = true,
@@ -507,17 +624,23 @@ impl AgitoServer {
         )
     )]
     async fn snapshot(&self, Parameters(args): Parameters<SnapshotArgs>) -> CallToolResult {
-        let page = match self.page().await {
-            Ok(page) => page,
+        let tab = match self.tab().await {
+            Ok(tab) => tab,
             Err(result) => return result,
         };
-        match self
-            .snapshot_text(&page, args.root_ref.as_deref(), args.max_depth)
-            .await
-        {
-            Ok(tree) => text(tree),
-            Err(message) => error(message),
-        }
+        let server = self.clone();
+        let reading = tab.clone();
+        self.read(&tab, async move {
+            server
+                .snapshot_text(
+                    &reading,
+                    args.root_ref.as_deref(),
+                    args.max_depth,
+                    args.max_frames,
+                )
+                .await
+        })
+        .await
     }
 
     #[tool(
@@ -531,15 +654,18 @@ impl AgitoServer {
         )
     )]
     async fn screenshot(&self, Parameters(args): Parameters<ScreenshotArgs>) -> CallToolResult {
-        let page = match self.page().await {
-            Ok(page) => page,
+        let tab = match self.tab().await {
+            Ok(tab) => tab,
             Err(result) => return result,
         };
+        if let Some(dialog) = tab.state.pending_dialog() {
+            return error(dialog_pending(&dialog));
+        }
         let options = ScreenshotOptions {
             full_page: args.full_page.unwrap_or(false),
             ..Default::default()
         };
-        match page.screenshot(options).await {
+        match tab.page.screenshot(options).await {
             Ok(bytes) => CallToolResult::success(vec![ContentBlock::image(
                 base64::engine::general_purpose::STANDARD.encode(bytes),
                 "image/png",
@@ -552,7 +678,9 @@ impl AgitoServer {
         name = "click",
         description = "Clicks the element addressed by a ref from the latest snapshot or by a \
             selector. A right-click, a middle-click, and a click with modifier keys held all go \
-            through the same actionability checks as a plain one.",
+            through the same actionability checks as a plain one. The result names anything the \
+            click changed: where the page went, a tab it opened, errors it logged, a dialog it \
+            raised.",
         annotations(title = "Click element", destructive_hint = true)
     )]
     async fn click(&self, Parameters(args): Parameters<ClickArgs>) -> CallToolResult {
@@ -572,7 +700,7 @@ impl AgitoServer {
             );
         }
         let done = format!("Clicked {}", args.r#ref);
-        self.on_element(&args.r#ref, done, args.snapshot, async |locator| {
+        self.on_element(&args.r#ref, done, args.snapshot, async move |locator| {
             if double {
                 locator.dblclick().await
             } else {
@@ -598,11 +726,12 @@ impl AgitoServer {
         let done = format!("Typed into {}", args.r#ref);
         let slowly = args.slowly == Some(true);
         let submit = args.submit == Some(true);
-        self.on_element(&args.r#ref, done, args.snapshot, async |locator| {
+        let typed = args.text;
+        self.on_element(&args.r#ref, done, args.snapshot, async move |locator| {
             if slowly {
-                locator.type_text(&args.text).await?;
+                locator.type_text(&typed).await?;
             } else {
-                locator.fill(&args.text).await?;
+                locator.fill(&typed).await?;
             }
             if submit {
                 locator.press("Enter").await?;
@@ -623,8 +752,9 @@ impl AgitoServer {
             return error("key is required.");
         }
         let done = format!("Pressed {} on {}", args.key, args.r#ref);
-        self.on_element(&args.r#ref, done, args.snapshot, async |locator| {
-            locator.press(&args.key).await
+        let key = args.key;
+        self.on_element(&args.r#ref, done, args.snapshot, async move |locator| {
+            locator.press(&key).await
         })
         .await
     }
@@ -639,14 +769,19 @@ impl AgitoServer {
         if args.key.is_empty() {
             return error("key is required.");
         }
-        let page = match self.page().await {
-            Ok(page) => page,
+        let tab = match self.tab().await {
+            Ok(tab) => tab,
             Err(result) => return result,
         };
-        match page.keyboard().press(&args.key).await {
-            Ok(()) => text(format!("Pressed {}", args.key)),
-            Err(e) => error(format!("Press key failed: {e}")),
-        }
+        let page = tab.page.clone();
+        self.act(tab, None, async move {
+            page.keyboard()
+                .press(&args.key)
+                .await
+                .map(|()| format!("Pressed {}", args.key))
+                .map_err(|e| format!("Press key failed: {e}"))
+        })
+        .await
     }
 
     #[tool(
@@ -713,8 +848,9 @@ impl AgitoServer {
             return error("values is required: name at least one option value.");
         }
         let done = format!("Selected {} option(s) in {}", args.values.len(), args.r#ref);
-        let values: Vec<&str> = args.values.iter().map(String::as_str).collect();
-        self.on_element(&args.r#ref, done, args.snapshot, async |locator| {
+        let values = args.values;
+        self.on_element(&args.r#ref, done, args.snapshot, async move |locator| {
+            let values: Vec<&str> = values.iter().map(String::as_str).collect();
             locator.select_option(&values).await.map(drop)
         })
         .await
@@ -729,8 +865,9 @@ impl AgitoServer {
     )]
     async fn set_checked(&self, Parameters(args): Parameters<SetCheckedArgs>) -> CallToolResult {
         let done = format!("Set {} checked={}", args.r#ref, args.checked);
-        self.on_element(&args.r#ref, done, args.snapshot, async |locator| {
-            locator.set_checked(args.checked).await
+        let checked = args.checked;
+        self.on_element(&args.r#ref, done, args.snapshot, async move |locator| {
+            locator.set_checked(checked).await
         })
         .await
     }
@@ -760,13 +897,22 @@ impl AgitoServer {
                 ));
             }
         };
+        let (tab, locator) = match self.target(&args.r#ref).await {
+            Ok(found) => found,
+            Err(result) => return result,
+        };
         let done = format!(
             "{} reached state {}",
             args.r#ref,
             args.state.to_ascii_lowercase()
         );
-        self.on_element(&args.r#ref, done, None, async |l| {
-            l.wait_for(state, None).await
+        let target = args.r#ref;
+        self.read(&tab, async move {
+            locator
+                .wait_for(state, None)
+                .await
+                .map(|()| done)
+                .map_err(|e| format!("{target}: {e}"))
         })
         .await
     }
@@ -774,7 +920,8 @@ impl AgitoServer {
     #[tool(
         name = "wait_for",
         description = "Waits for a page condition: a fixed time, text to appear, or text to \
-            disappear. Provide exactly one of time, text, or text_gone.",
+            disappear. The text waits look at the scoped frame when one is selected, and at the \
+            page otherwise. Provide exactly one of time, text, or text_gone.",
         annotations(
             title = "Wait for a page condition",
             read_only_hint = true,
@@ -782,13 +929,13 @@ impl AgitoServer {
         )
     )]
     async fn wait_for(&self, Parameters(args): Parameters<WaitForArgs>) -> CallToolResult {
-        let page = match self.page().await {
-            Ok(page) => page,
+        let tab = match self.tab().await {
+            Ok(tab) => tab,
             Err(result) => return result,
         };
         let (wanted, present) = match (args.time, args.text, args.text_gone) {
             (Some(ms), None, None) => {
-                page.wait_for_timeout(Duration::from_millis(ms)).await;
+                tab.page.wait_for_timeout(Duration::from_millis(ms)).await;
                 return text(format!("Waited {ms} ms"));
             }
             (None, Some(t), None) => (t, true),
@@ -799,64 +946,439 @@ impl AgitoServer {
             "!!document.body && document.body.innerText.includes({})",
             serde_json::Value::from(wanted.as_str())
         );
-        let timeout = page.context().options().action_timeout;
-        let deadline = Instant::now() + timeout;
-        loop {
-            if page.evaluate::<bool>(&probe).await.ok() == Some(present) {
-                return text(if present {
-                    format!("Text appeared: {wanted}")
-                } else {
-                    format!("Text gone: {wanted}")
-                });
+        let frame = tab.state.frame().unwrap_or_else(|| tab.page.main_frame());
+        let timeout = tab.page.context().options().action_timeout;
+        self.read(&tab, async move {
+            let deadline = Instant::now() + timeout;
+            loop {
+                if frame.evaluate::<bool>(&probe).await.ok() == Some(present) {
+                    return Ok(if present {
+                        format!("Text appeared: {wanted}")
+                    } else {
+                        format!("Text gone: {wanted}")
+                    });
+                }
+                if Instant::now() >= deadline {
+                    return Err(format!(
+                        "Wait failed: timed out after {} ms waiting for '{wanted}' to {}.",
+                        timeout.as_millis(),
+                        if present { "appear" } else { "disappear" }
+                    ));
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
             }
-            if Instant::now() >= deadline {
-                return error(format!(
-                    "Wait failed: timed out after {} ms waiting for '{wanted}' to {}.",
-                    timeout.as_millis(),
-                    if present { "appear" } else { "disappear" }
-                ));
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
+        })
+        .await
     }
 
     #[tool(
         name = "evaluate",
         description = "Evaluates a JavaScript expression and returns its result as structured \
             JSON under a \"result\" key, so an expression may return a value of any shape: a \
-            number, a string, an array, or an object. With no ref it runs in the page; with a ref \
-            or a selector the expression must be a function, and runs against that element, \
-            passed as its argument. Results that cannot be serialized (undefined, functions, DOM \
-            nodes) come back as null.",
+            number, a string, an array, or an object. With no ref it runs in the page, or in the \
+            scoped frame when one is selected; with a ref or a selector the expression must be a \
+            function, and runs against that element, passed as its argument. Results that cannot \
+            be serialized (undefined, functions, DOM nodes) come back as null.",
         annotations(title = "Evaluate JavaScript", destructive_hint = true)
     )]
     async fn evaluate(&self, Parameters(args): Parameters<EvaluateArgs>) -> CallToolResult {
         if args.expression.trim().is_empty() {
             return error("expression is required.");
         }
-        let outcome = match args.r#ref.as_deref().filter(|r| !r.trim().is_empty()) {
-            None => {
-                let page = match self.page().await {
-                    Ok(page) => page,
-                    Err(result) => return result,
+        let (tab, locator) = match args.r#ref.as_deref().filter(|r| !r.trim().is_empty()) {
+            None => match self.tab().await {
+                Ok(tab) => (tab, None),
+                Err(result) => return result,
+            },
+            Some(target) => match self.target(target).await {
+                Ok((tab, locator)) => (tab, Some(locator)),
+                Err(result) => return result,
+            },
+        };
+        let frame = tab.state.frame().unwrap_or_else(|| tab.page.main_frame());
+        let expression = args.expression;
+        let result = self
+            .read(&tab, async move {
+                let value = match locator {
+                    None => {
+                        frame
+                            .evaluate::<Option<serde_json::Value>>(&expression)
+                            .await
+                    }
+                    Some(locator) => {
+                        locator
+                            .evaluate::<Option<serde_json::Value>>(
+                                &element_function(&expression),
+                                &[],
+                            )
+                            .await
+                    }
                 };
-                page.evaluate::<Option<serde_json::Value>>(&args.expression)
-                    .await
-            }
-            Some(target) => {
-                let (_, locator) = match self.target(target).await {
-                    Ok(found) => found,
-                    Err(result) => return result,
-                };
-                locator
-                    .evaluate::<Option<serde_json::Value>>(&element_function(&args.expression), &[])
-                    .await
-            }
+                // Structured content must be an object, and one shape for every value keeps a
+                // single count as easy to read as a record.
+                value
+                    .map(|v| json!({ "result": v.unwrap_or_default() }).to_string())
+                    .map_err(|e| format!("Evaluate failed: {e}"))
+            })
+            .await;
+        if result.is_error == Some(true) {
+            return result;
+        }
+        match serde_json::from_str::<serde_json::Value>(first_text(&result)) {
+            Ok(value) => CallToolResult::structured(value),
+            // A dialog the expression opened.
+            Err(_) => result,
+        }
+    }
+
+    #[tool(
+        name = "handle_dialog",
+        description = "Accepts or dismisses the open JavaScript dialog (alert, confirm, or \
+            prompt). A dialog blocks the page until it is handled. Returns an error when no \
+            dialog is open. For a prompt, text is the value to enter when accepting.",
+        annotations(title = "Handle a dialog", destructive_hint = true)
+    )]
+    async fn handle_dialog(
+        &self,
+        Parameters(args): Parameters<HandleDialogArgs>,
+    ) -> CallToolResult {
+        let tab = self.session.lock().await.current_tab();
+        let Some(dialog) = tab.and_then(|t| t.state.take_dialog()) else {
+            return error("No dialog is open.");
+        };
+        let outcome = if args.accept {
+            dialog.accept(args.text.as_deref()).await
+        } else {
+            dialog.dismiss().await
         };
         match outcome {
-            Ok(value) => evaluation_result(value.unwrap_or_default()),
-            Err(e) => error(format!("Evaluate failed: {e}")),
+            Ok(()) => text(format!(
+                "Dialog ({}) {}: {}",
+                dialog.kind,
+                if args.accept { "accepted" } else { "dismissed" },
+                dialog.message
+            )),
+            Err(e) => error(format!("Handling dialog failed: {e}")),
         }
+    }
+
+    #[tool(
+        name = "console_messages",
+        description = "Returns the console messages and uncaught page errors the active tab has \
+            logged. Each line is [type] text; an uncaught error has the type pageerror. Reading \
+            does not clear the log, so the same call can be made again. The last line is next=N: \
+            pass that as since to read only what arrives after this read. An action result that \
+            counts errors gives the since value that returns exactly those.",
+        annotations(
+            title = "Read console output",
+            read_only_hint = true,
+            destructive_hint = false
+        )
+    )]
+    async fn console_messages(&self, Parameters(args): Parameters<SinceArgs>) -> CallToolResult {
+        let tab = match self.tab().await {
+            Ok(tab) => tab,
+            Err(result) => return result,
+        };
+        let slice = tab.state.console.lock().unwrap().read(args.since);
+        text(render_log(
+            slice,
+            |_, entry| entry.to_string(),
+            match args.since {
+                None => "No console messages have been logged.".into(),
+                Some(s) => format!("No console messages have been logged since {s}."),
+            },
+        ))
+    }
+
+    #[tool(
+        name = "network_requests",
+        description = "Returns the requests the active tab has finished. Each line is [n] METHOD \
+            STATUS URL (resource type), where n is the sequence number network_request takes; a \
+            failed or blocked request shows FAILED. Reading does not clear the log, so the same \
+            call can be made again. The last line is next=N: pass that as since to read only what \
+            arrives after this read.",
+        annotations(
+            title = "Read the request log",
+            read_only_hint = true,
+            destructive_hint = false
+        )
+    )]
+    async fn network_requests(&self, Parameters(args): Parameters<SinceArgs>) -> CallToolResult {
+        let tab = match self.tab().await {
+            Ok(tab) => tab,
+            Err(result) => return result,
+        };
+        let slice = tab.state.network.lock().unwrap().read(args.since);
+        text(render_log(
+            slice,
+            |seq, entry| format!("[{seq}] {entry}"),
+            match args.since {
+                None => "No requests have been logged.".into(),
+                Some(s) => format!("No requests have been logged since {s}."),
+            },
+        ))
+    }
+
+    #[tool(
+        name = "network_request",
+        description = "Returns the detail the log holds for one request: its method, status, URL, \
+            resource type, request and response headers, any request body, and the response body \
+            when the browser can still produce it. The sequence number is the [n] that \
+            network_requests prints in front of each line.",
+        annotations(
+            title = "Read one request",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true
+        )
+    )]
+    async fn network_request(
+        &self,
+        Parameters(args): Parameters<NetworkRequestArgs>,
+    ) -> CallToolResult {
+        let tab = match self.tab().await {
+            Ok(tab) => tab,
+            Err(result) => return result,
+        };
+        let found = tab.state.network.lock().unwrap().find(args.sequence);
+        let Some(entry) = found else {
+            return error(format!(
+                "No request with sequence {} is in the log. Call network_requests to see what it \
+                 holds.",
+                args.sequence
+            ));
+        };
+        let mut out = format!("[{}] {entry}\n", args.sequence);
+        for (label, headers) in [
+            ("Request headers", &entry.request_headers),
+            ("Response headers", &entry.response_headers),
+        ] {
+            if !headers.is_empty() {
+                out.push_str(&format!("{label}:\n"));
+                for (k, v) in headers {
+                    out.push_str(&format!("  {k}: {v}\n"));
+                }
+            }
+        }
+        if let Some(body) = &entry.post_data {
+            out.push_str(&format!("Request body:\n{body}\n"));
+        }
+        let content_type = entry.response_header("content-type").unwrap_or_default();
+        let length: Option<usize> = entry
+            .response_header("content-length")
+            .and_then(|l| l.trim().parse().ok());
+        let body = if entry.status.is_none() {
+            "the request failed, so there is none.".to_owned()
+        } else if !content_type.is_empty() && !is_text(content_type) {
+            format!("not shown, because it is {content_type}.")
+        } else if let Some(length) = length.filter(|l| *l > BODY_LIMIT) {
+            format!("not shown, because it is {length} bytes.")
+        } else {
+            match entry.body().await {
+                None => "the browser no longer has it. Response data is evicted, and a \
+                         navigation drops it at once."
+                    .to_owned(),
+                Some(body) if body.chars().count() <= BODY_LIMIT => format!("\n{body}"),
+                Some(body) => format!(
+                    "\n{}... (truncated)",
+                    body.chars().take(BODY_LIMIT).collect::<String>()
+                ),
+            }
+        };
+        out.push_str(&format!("Response body: {body}"));
+        text(out)
+    }
+
+    #[tool(
+        name = "frame_list",
+        description = "Lists the frames of the active page, each with its zero-based index, \
+            nesting depth, URL, and name. Index 0 is the page itself and a frame is listed after \
+            the frame that holds it, with frames at the same level in the order they attached. \
+            The scoped frame is marked with an asterisk. The index is the one a page snapshot \
+            prints as [frame=N] and puts in front of the refs inside it.",
+        annotations(
+            title = "List frames",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true
+        )
+    )]
+    async fn frame_list(&self) -> CallToolResult {
+        let tab = match self.tab().await {
+            Ok(tab) => tab,
+            Err(result) => return result,
+        };
+        let scoped = tab.state.frame();
+        let frames = frame_order(&tab.page);
+        let mut lines = Vec::new();
+        for (i, (frame, depth)) in frames.iter().enumerate() {
+            let marked = match &scoped {
+                None => i == 0,
+                Some(s) => s == frame,
+            };
+            let mut line = format!(
+                "{}[{i}] {}{}{}",
+                if marked { "* " } else { "  " },
+                "  ".repeat(*depth),
+                if i == 0 { "(page) " } else { "" },
+                frame.url()
+            );
+            let name = frame.name();
+            if !name.is_empty() {
+                line.push_str(&format!(" | {name}"));
+            }
+            lines.push(line);
+        }
+        if frames.len() == 1 {
+            lines.push("This page has no frames beyond itself.".into());
+        }
+        text(lines.join("\n"))
+    }
+
+    #[tool(
+        name = "frame_select",
+        description = "Scopes snapshot, evaluate, selectors and the text waits to the frame at \
+            the given zero-based index. Clicking and typing inside a frame need no scope: a page \
+            snapshot prints every frame and its refs reach into them. Index 0 returns to the \
+            page. Indices come from frame_list. Take a snapshot afterwards: refs from the \
+            previous scope do not carry over.",
+        annotations(title = "Select a frame", destructive_hint = false)
+    )]
+    async fn frame_select(&self, Parameters(args): Parameters<IndexArgs>) -> CallToolResult {
+        let tab = match self.tab().await {
+            Ok(tab) => tab,
+            Err(result) => return result,
+        };
+        let frames = frame_order(&tab.page);
+        let Some((frame, _)) = frames.get(args.index) else {
+            return error(format!(
+                "There is no frame {}: the page has {} frame{}, numbered 0 to {}. Call frame_list \
+                 to see them.",
+                args.index,
+                frames.len(),
+                if frames.len() == 1 { "" } else { "s" },
+                frames.len() - 1
+            ));
+        };
+        if args.index == 0 {
+            tab.state.select_frame(None);
+            return text(format!("Scoped back to the page: {}", frame.url()));
+        }
+        tab.state.select_frame(Some(frame.clone()));
+        text(format!(
+            "Scoped to frame {}: {}. Take a snapshot to address its elements.",
+            args.index,
+            frame.url()
+        ))
+    }
+
+    #[tool(
+        name = "audit_accessibility",
+        description = "Runs WCAG 2.1 A and AA accessibility checks against the active page and \
+            its frames and returns the violations found, each with a rule id, severity, message, \
+            the node's role, name, and text, a best-effort CSS selector, the frame it is in, and \
+            (when the snapshot gave the element a ref) a ref usable with click, type, and other \
+            tools. A fresh snapshot is taken as part of the audit, so refs from an earlier \
+            snapshot are replaced.",
+        annotations(
+            title = "Audit accessibility",
+            read_only_hint = true,
+            destructive_hint = false
+        )
+    )]
+    async fn audit_accessibility(&self, Parameters(args): Parameters<AuditArgs>) -> CallToolResult {
+        let threshold = match args
+            .min_severity
+            .as_deref()
+            .map(str::to_ascii_lowercase)
+            .as_deref()
+        {
+            None | Some("") => None,
+            Some("error") => Some(Severity::Error),
+            Some("warning") => Some(Severity::Warning),
+            Some("info") => Some(Severity::Info),
+            Some(other) => {
+                return error(format!(
+                    "Unknown severity '{other}'. Use error, warning, or info."
+                ));
+            }
+        };
+        let tab = match self.tab().await {
+            Ok(tab) => tab,
+            Err(result) => return result,
+        };
+        let auditing = tab.clone();
+        let result = self
+            .read(&tab, async move {
+                let mut snapshot = auditing.state.snapshot.lock().await;
+                snapshot
+                    .take(&auditing.page, None, None, None, None)
+                    .await
+                    .map_err(|_| "Accessibility audit failed: the page could not be read.")?;
+                let audit = auditing
+                    .page
+                    .audit_accessibility(&AuditOptions::default())
+                    .await
+                    .map_err(|e| format!("Accessibility audit failed: {e}"))?;
+                let page_url = auditing.page.url();
+                let violations: Vec<serde_json::Value> = audit
+                    .violations
+                    .iter()
+                    .filter(|v| {
+                        threshold.is_none_or(|t| severity_rank(v.severity) <= severity_rank(t))
+                    })
+                    .map(|v| {
+                        let node = v.backend_node_id;
+                        json!({
+                            "ruleId": v.rule_id,
+                            "severity": v.severity,
+                            "message": v.message,
+                            "nodeRole": v.role,
+                            "nodeName": v.name,
+                            "nodeText": node
+                                .filter(|_| v.frame_url == page_url)
+                                .and_then(|n| snapshot.text_for(n)),
+                            "selector": v.selector,
+                            "frameUrl": (v.frame_url != page_url).then_some(&v.frame_url),
+                            "ref": node.and_then(|n| snapshot.ref_for(&v.frame_url, &page_url, n)),
+                        })
+                    })
+                    .collect();
+                Ok(
+                    json!({ "violationCount": violations.len(), "violations": violations })
+                        .to_string(),
+                )
+            })
+            .await;
+        if result.is_error == Some(true) {
+            return result;
+        }
+        let Ok(payload) = serde_json::from_str::<serde_json::Value>(first_text(&result)) else {
+            return result;
+        };
+        let count = payload["violationCount"].as_u64().unwrap_or(0);
+        let mut summary = match (count, threshold) {
+            (0, None) => "No accessibility violations found.".to_owned(),
+            (0, Some(t)) => format!("No accessibility violations found at or above {t} severity."),
+            (n, _) => format!("Found {n} accessibility violation(s):"),
+        };
+        for v in payload["violations"].as_array().into_iter().flatten() {
+            let at = v["ref"]
+                .as_str()
+                .or(v["selector"].as_str())
+                .map(|a| format!(" ({a})"))
+                .unwrap_or_default();
+            summary.push_str(&format!(
+                "\n[{}] {}: {}{at}",
+                v["severity"].as_str().unwrap_or_default(),
+                v["ruleId"].as_str().unwrap_or_default(),
+                v["message"].as_str().unwrap_or_default()
+            ));
+        }
+        let mut structured = CallToolResult::structured(payload);
+        structured.content = vec![ContentBlock::text(summary)];
+        structured
     }
 
     #[tool(
@@ -879,8 +1401,8 @@ impl AgitoServer {
             return text("No tabs are open.");
         }
         let mut lines = Vec::new();
-        for (i, (context, page)) in tabs.iter().enumerate() {
-            let mut line = format!("[{i}] {}", describe(page).await);
+        for (i, (context, tab)) in tabs.iter().enumerate() {
+            let mut line = format!("[{i}] {}", describe(tab).await);
             if named {
                 line.push_str(&format!(" | context: {context}"));
             }
@@ -900,12 +1422,12 @@ impl AgitoServer {
         if let Some(refusal) = url.as_deref().and_then(|u| refuse_url(&self.options, u)) {
             return error(refusal);
         }
-        let page = match self.session.lock().await.open_tab().await {
-            Ok(page) => page,
+        let tab = match self.session.lock().await.open_tab().await {
+            Ok(tab) => tab,
             Err(e) => return error(format!("Opening tab failed: {e}")),
         };
         if let Some(url) = &url
-            && let Err(e) = page.goto(url).await
+            && let Err(e) = tab.page.goto(url).await
         {
             return error(format!("Opening tab failed: {e}"));
         }
@@ -921,10 +1443,10 @@ impl AgitoServer {
             tab_list; call it first if you are unsure of the current order.",
         annotations(title = "Select a tab", destructive_hint = false)
     )]
-    async fn tab_select(&self, Parameters(args): Parameters<TabSelectArgs>) -> CallToolResult {
+    async fn tab_select(&self, Parameters(args): Parameters<IndexArgs>) -> CallToolResult {
         let selected = self.session.lock().await.select_tab(args.index);
         match selected {
-            Ok(page) => text(format!("Selected tab {}: {}", args.index, page.url())),
+            Ok(tab) => text(format!("Selected tab {}: {}", args.index, tab.page.url())),
             Err(message) => error(message),
         }
     }
@@ -977,10 +1499,33 @@ impl ServerHandler for AgitoServer {
         request: rmcp::model::CallToolRequestParams,
         context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<rmcp::model::CallToolResponse, rmcp::ErrorData> {
-        // tokio's mutex is fair: waiting calls take their turn in arrival order.
+        // tokio's mutex is fair: waiting calls take their turn in the order they asked.
         let _turn = self.calls.lock().await;
         let call = rmcp::handler::server::tool::ToolCallContext::new(self, request, context);
-        self.tool_router.call(call).await
+        let mut response = self.tool_router.call(call).await?;
+        // A dialog left open blocks everything after it, so every result says so until it is
+        // answered, unless the result already does.
+        let pending = self
+            .session
+            .lock()
+            .await
+            .current_tab()
+            .and_then(|t| t.state.pending_dialog());
+        if let (Some(dialog), rmcp::model::CallToolResponse::Complete(result)) =
+            (pending, &mut response)
+        {
+            let said = result.content.iter().any(|c| {
+                c.as_text().is_some_and(|t| {
+                    t.text.contains("handle_dialog") && t.text.contains(&dialog.message)
+                })
+            });
+            if !said {
+                result
+                    .content
+                    .insert(0, ContentBlock::text(dialog_pending(&dialog)));
+            }
+        }
+        Ok(response)
     }
 
     fn get_info(&self) -> ServerConfig {

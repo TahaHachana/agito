@@ -53,13 +53,6 @@ const TEXT_ROLES: &[&str] = &["statictext", "inlinetextbox", "listmarker", "labe
 /// line break.
 const DROPPED_ROLES: &[&str] = &["inlinetextbox", "listmarker", "linebreak"];
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "frame collection and audits arrive with frame support"
-    )
-)]
 /// The longest inline text reported for a node before it is cut short.
 const INLINE_TEXT_LIMIT: usize = 80;
 
@@ -93,13 +86,11 @@ pub(crate) struct InlineFrames {
 }
 
 impl InlineFrames {
-    #[expect(dead_code, reason = "frame collection arrives with frame support")]
     pub fn add(&mut self, host: Option<&Frame>, host_node: i64, tree: FrameTree) {
         self.by_host
             .insert((host.map(|f| f.id().to_owned()), host_node), tree);
     }
 
-    #[expect(dead_code, reason = "frame collection arrives with frame support")]
     pub fn len(&self) -> usize {
         self.by_host.len()
     }
@@ -114,7 +105,6 @@ impl InlineFrames {
 pub(crate) struct Serialized {
     pub text: String,
     pub refs: HashMap<String, RefTarget>,
-    #[expect(dead_code, reason = "frame collection arrives with frame support")]
     pub frames: Vec<FrameTree>,
 }
 
@@ -181,13 +171,6 @@ pub(crate) fn find_by_backend_id(roots: &[AxNode], backend_node_id: i64) -> Opti
         .find(|n| n.backend_node_id == Some(backend_node_id))
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "frame collection and audits arrive with frame support"
-    )
-)]
 /// The text under a node as the snapshot would print it, cut short past a readable length;
 /// `None` when it has none. Describes a node that took no ref.
 pub(crate) fn inline_text(node: &AxNode) -> Option<String> {
@@ -358,7 +341,7 @@ impl<'a> Writer<'a> {
         }
 
         // Text that only repeats the node's name says where the name came from, and nothing
-        // new.
+        // new; text that repeats its value (a field's typed text) is already on the line.
         let remaining: Vec<&AxNode> = self
             .children_of(node)
             .into_iter()
@@ -367,7 +350,7 @@ impl<'a> Writer<'a> {
                     return true;
                 }
                 let text = normalize(&child.name);
-                !text.is_empty() && text != name
+                !text.is_empty() && text != name && text != value
             })
             .collect();
 
