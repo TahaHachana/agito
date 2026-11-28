@@ -104,6 +104,21 @@ Listed tests still run and are reported, but their failures do not fail the run.
 quarantined in code with [`#[agito::test(quarantine = "...")]`](../writing/flaky-tests.md#quarantine)
 are reported the same way.
 
+## Accessibility
+
+`--a11y warn` audits every page the tests visit for
+[accessibility](../writing/accessibility.md) and reports what it finds; `--a11y enforce`
+also fails the tests that leave violations behind. Violations are listed under their test,
+counted in the summary, and kept in the reports: as notes in JUnit, where they never fail a
+test themselves, and in the HTML report's details.
+
+```text
+  PASS  shop::checkout::pays_by_card (2.40s)
+        A11Y [error] a11y-unlabeled-form-control: Form control (role: textbox) has no accessible name. ... (#card)
+...
+Accessibility: 1 violation(s) in 1 test
+```
+
 ## When a test binary crashes
 
 If a binary dies part-way, from a segfault or an `abort()`, the tests it had not reported are

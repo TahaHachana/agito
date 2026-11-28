@@ -3,11 +3,18 @@
 ## Unreleased
 
 ### Breaking changes
-- `ContextOptions` has a new field, `storage_state`, and `LaunchOptions` and
-  `ConnectOptions` have a new field, `protocol_log`. Code that builds them with
+- `ContextOptions` has new fields, `storage_state` and `accessibility`, and `LaunchOptions`
+  and `ConnectOptions` have a new field, `protocol_log`. Code that builds them with
   `..Default::default()`, as the docs do, is unaffected.
 
 ### Added
+- Automatic accessibility audits. With `accessibility.mode` set to `warn` or `enforce` in
+  `agito.config.json` (or `AGITO_ACCESSIBILITY_MODE`, or `ContextOptions::accessibility`),
+  each context audits after every navigation, and optionally after actions that change a
+  page. In enforce mode, `#[agito::test]` fails a test that leaves violations behind, under
+  plain `cargo test`. `context.accessibility_violations()` returns what was found.
+  `agito run --a11y warn|enforce` sets the mode for a run and reports violations in the
+  console, JUnit and HTML.
 - Accessibility audits. `page.audit_accessibility` checks a page and its iframes against nine
   WCAG-based rules (image alt text, labels on form controls, button and link names, colour
   contrast, duplicate ids, the document's language, heading levels and a main landmark), and

@@ -97,6 +97,17 @@ impl Console {
                 self.paint(GRAY, &format!("quarantined: {reason}"))
             );
         }
+        for violation in &outcome.accessibility {
+            let color = match violation.severity {
+                agito::accessibility::Severity::Error => RED,
+                agito::accessibility::Severity::Warning => YELLOW,
+                agito::accessibility::Severity::Info => GRAY,
+            };
+            println!(
+                "        {}",
+                self.paint(color, &format!("A11Y {violation}"))
+            );
+        }
     }
 
     pub fn retrying(&self, count: usize, attempt: u32, attempts: u32) {
@@ -171,6 +182,17 @@ impl Console {
             summary.total(),
             seconds(elapsed)
         );
+        let violations: usize = outcomes.iter().map(|o| o.accessibility.len()).sum();
+        if violations > 0 {
+            let tests = outcomes
+                .iter()
+                .filter(|o| !o.accessibility.is_empty())
+                .count();
+            println!(
+                "Accessibility: {violations} violation(s) in {tests} test{}",
+                plural(tests)
+            );
+        }
     }
 }
 

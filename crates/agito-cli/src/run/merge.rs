@@ -280,6 +280,11 @@ impl Case {
             quarantine,
             message,
             output,
+            accessibility: self
+                .properties
+                .get(reports::ACCESSIBILITY)
+                .and_then(|json| serde_json::from_str(json).ok())
+                .unwrap_or_default(),
             screenshot: self.attachment.and_then(|a| {
                 Some(PathBuf::from(
                     a.strip_prefix("[[ATTACHMENT|")?.strip_suffix("]]")?,
@@ -447,6 +452,7 @@ mod tests {
             message: None,
             output: None,
             screenshot: None,
+            accessibility: Vec::new(),
         }
     }
 
@@ -474,6 +480,14 @@ mod tests {
         quarantined.message = Some("still broken".into());
         let mut quarantined_pass = outcome("pkg::ui", "recovered", Status::Passed);
         quarantined_pass.quarantine = Some("issue 13".into());
+        quarantined_pass.accessibility = vec![
+            agito::accessibility::Violation::new(
+                "a11y-empty-button",
+                agito::accessibility::Severity::Error,
+                "Button has no \"name\" <here>.",
+            )
+            .at_selector("#close"),
+        ];
         let written = vec![
             outcome("pkg", "tests::passes", Status::Passed),
             outcome("pkg", "tests::ignored", Status::Skipped),
@@ -522,6 +536,10 @@ mod tests {
         assert_eq!(
             by_name["pkg::ui::known"].message.as_deref(),
             Some("still broken")
+        );
+        assert_eq!(
+            by_name["pkg::ui::recovered"].accessibility, written[5].accessibility,
+            "violations survive a merge"
         );
     }
 

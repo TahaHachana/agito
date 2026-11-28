@@ -44,6 +44,7 @@ agito run [OPTIONS] [CARGO_ARGS]... [-- TEST_ARGS...]
 | `--fail-on-flaky` | Fail the run if any test is flaky |
 | `--quarantine FILE` | A file of full test names, one per line, whose failures do not fail the run |
 | `--flaky-history FILE` | Add this run's results to a JSON history of each test's runs, failures and flaky passes |
+| `--a11y off\|warn\|enforce` | Audit every page tests visit for accessibility: report violations, or also fail the tests that leave them. Overrides the configuration. |
 
 `CARGO_ARGS` go to `cargo test --no-run`: `-p`, `--workspace`, `--features`, `--release`,
 `--manifest-path` and so on. `TEST_ARGS`, after `--`, select tests: name patterns,

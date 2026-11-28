@@ -8,9 +8,11 @@
 
 pub mod audit;
 pub mod contrast;
+pub mod hook;
 pub mod rules;
 pub mod tree;
 
 pub use audit::{AuditOptions, AuditResult};
+pub use hook::{AccessibilityMode, AccessibilityOptions};
 pub use rules::{AccessibilityRule, AuditedDocument, Severity, TextSample, Violation};
 pub use tree::{AccessibilitySnapshot, AxNode};

@@ -33,7 +33,8 @@ A file that cannot be parsed is ignored with a warning, rather than failing ever
   },
   "locator": { "timeout": 30000 },
   "assertions": { "timeout": 10000 },
-  "failure": { "screenshot": true, "screenshotPath": "target/agito-failures" }
+  "failure": { "screenshot": true, "screenshotPath": "target/agito-failures" },
+  "accessibility": { "mode": "warn", "auditAfterActions": false, "skipRules": [] }
 }
 ```
 
@@ -67,6 +68,18 @@ Every key is optional. Times are in milliseconds.
 |---|---|---|---|
 | `locator.timeout` | `AGITO_LOCATOR_TIMEOUT` | 30000 | How long an action waits for its element |
 | `assertions.timeout` | `AGITO_ASSERTIONS_TIMEOUT` | 10000 | How long an `expect` assertion retries |
+
+### accessibility
+
+Automatic accessibility audits: see [Accessibility](../writing/accessibility.md#auditing-every-page-automatically).
+
+| Key | Variable | Default | Meaning |
+|---|---|---|---|
+| `mode` | `AGITO_ACCESSIBILITY_MODE` | `off` | `off`, `warn` (report) or `enforce` (also fail tests that leave violations) |
+| `auditAfterNavigation` | | `true` | Audit after each navigation |
+| `auditAfterActions` | | `false` | Also audit after clicks, fills, selects and checks |
+| `includeWarnings` | | `true` | Whether warnings fail a test in enforce mode, as errors do |
+| `skipRules` | `AGITO_ACCESSIBILITY_SKIP_RULES` | none | Rule ids not to run; the variable takes them comma-separated |
 
 ### failure
 

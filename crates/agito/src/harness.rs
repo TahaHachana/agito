@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use futures::FutureExt;
 use tokio::sync::{Mutex, Semaphore};
 
+use crate::accessibility::AccessibilityMode;
 use crate::browser::Browser;
 use crate::config;
 use crate::context::{BrowserContext, ContextOptions};
@@ -175,10 +176,11 @@ where
     let started = Instant::now();
     let attempts = options.retries + 1;
     let mut attempt = 0;
-    let (result, screenshot) = loop {
+    let (result, screenshot, accessibility) = loop {
         attempt += 1;
         let last_attempt = attempt == attempts;
-        let (result, screenshot) = RUNTIME.block_on(run_attempt(name, &options, &body));
+        let (result, screenshot, accessibility) =
+            RUNTIME.block_on(run_attempt(name, &options, &body));
         let retry = match &result {
             Attempt::SetupFailed(e) => e
                 .is_browser_lost()
@@ -194,7 +196,7 @@ where
                 "[RETRY] {name}: {why}; attempt {} of {attempts}",
                 attempt + 1
             ),
-            _ => break (result, screenshot),
+            _ => break (result, screenshot, accessibility),
         }
     };
 
@@ -219,6 +221,7 @@ where
         browser_lost,
         quarantine: options.quarantine.map(str::to_owned),
         screenshot,
+        accessibility,
     });
 
     let Some(message) = message else {
@@ -239,7 +242,11 @@ async fn run_attempt<F, Fut, R>(
     name: &str,
     options: &TestOptions,
     body: &F,
-) -> (Attempt, Option<std::path::PathBuf>)
+) -> (
+    Attempt,
+    Option<std::path::PathBuf>,
+    Vec<crate::accessibility::Violation>,
+)
 where
     F: Fn(Fixtures) -> Fut,
     Fut: Future<Output = R>,
@@ -251,12 +258,34 @@ where
         .expect("semaphore is never closed");
     let fixtures = match setup(options).await {
         Ok(f) => f,
-        Err(e) => return (Attempt::SetupFailed(e), None),
+        Err(e) => return (Attempt::SetupFailed(e), None, Vec::new()),
     };
     let outcome = AssertUnwindSafe(body(fixtures.clone()))
         .catch_unwind()
         .await;
-    let failed = !matches!(&outcome, Ok(r) if r.outcome().is_ok());
+    let accessibility = fixtures.context.accessibility_violations();
+    let a11y = &fixtures.context.options().accessibility;
+    let a11y_failure = (a11y.mode == AccessibilityMode::Enforce)
+        .then(|| a11y.failures(&accessibility))
+        .filter(|failing| !failing.is_empty())
+        .map(|failing| {
+            let lines: Vec<String> = failing.iter().map(|v| format!("  {v}")).collect();
+            format!(
+                "{} accessibility violation(s), in enforce mode:\n{}",
+                failing.len(),
+                lines.join("\n")
+            )
+        });
+    if a11y.mode == AccessibilityMode::Warn && !accessibility.is_empty() {
+        eprintln!(
+            "[ACCESSIBILITY] {name}: {} violation(s):",
+            accessibility.len()
+        );
+        for v in &accessibility {
+            eprintln!("  {v}");
+        }
+    }
+    let failed = !matches!(&outcome, Ok(r) if r.outcome().is_ok()) || a11y_failure.is_some();
     let screenshot = if failed {
         capture_failure(name, &fixtures.page).await
     } else {
@@ -270,7 +299,14 @@ where
     let browser_died = failed && !fixtures.browser.is_connected();
     let attempt = match outcome {
         Ok(r) => match r.outcome() {
-            Ok(()) => Attempt::Passed,
+            // A test that passed but left accessibility errors behind fails, in enforce mode.
+            Ok(()) => match a11y_failure {
+                Some(message) => Attempt::Failed {
+                    message,
+                    browser_lost: false,
+                },
+                None => Attempt::Passed,
+            },
             Err(message) => Attempt::Failed {
                 message,
                 browser_lost: r.browser_lost() || browser_died,
@@ -285,7 +321,7 @@ where
         },
         Err(panic) => Attempt::Panicked(panic),
     };
-    (attempt, screenshot)
+    (attempt, screenshot, accessibility)
 }
 
 /// The text of a panic payload, as the default hook prints it.

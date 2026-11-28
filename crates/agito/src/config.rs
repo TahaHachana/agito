@@ -22,6 +22,8 @@ pub struct Config {
     pub assertions: AssertionsConfig,
     /// `failure`: what to save when a test fails.
     pub failure: FailureConfig,
+    /// `accessibility`: automatic accessibility audits.
+    pub accessibility: AccessibilityConfig,
 }
 
 /// The `launch` section.
@@ -86,6 +88,22 @@ pub struct LocatorConfig {
 pub struct AssertionsConfig {
     /// Default assertion timeout, in milliseconds.
     pub timeout: Option<u64>,
+}
+
+/// The `accessibility` section.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AccessibilityConfig {
+    /// `off`, `warn` or `enforce`.
+    pub mode: Option<String>,
+    /// Audit after each navigation.
+    pub audit_after_navigation: Option<bool>,
+    /// Also audit after actions that change a page.
+    pub audit_after_actions: Option<bool>,
+    /// Whether warnings fail a test in enforce mode.
+    pub include_warnings: Option<bool>,
+    /// Rule ids not to run.
+    pub skip_rules: Option<Vec<String>>,
 }
 
 /// The `failure` section.
@@ -203,6 +221,18 @@ fn apply_env(c: &mut Config, env: &dyn Fn(&str) -> Option<String>) {
     }
     if let Some(v) = non_empty(env("AGITO_FAILURES_SCREENSHOT_PATH")) {
         c.failure.screenshot_path = Some(v);
+    }
+    if let Some(v) = non_empty(env("AGITO_ACCESSIBILITY_MODE")) {
+        c.accessibility.mode = Some(v);
+    }
+    if let Some(v) = non_empty(env("AGITO_ACCESSIBILITY_SKIP_RULES")) {
+        c.accessibility.skip_rules = Some(
+            v.split(',')
+                .map(str::trim)
+                .filter(|r| !r.is_empty())
+                .map(str::to_owned)
+                .collect(),
+        );
     }
 }
 

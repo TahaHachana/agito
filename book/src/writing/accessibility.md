@@ -53,6 +53,56 @@ Large text is at least 24px, or bold and at least 18.66px.
 violation in one names its frame. The two page-wide rules, `lang` and the `main` landmark,
 apply only to the page's own document, since an embedded widget legitimately has neither.
 
+## Auditing every page automatically
+
+Instead of asserting on chosen pages, agito can audit every page a test visits. Turn it on in
+[`agito.config.json`](../reference/configuration.md#accessibility):
+
+```json
+{ "accessibility": { "mode": "enforce" } }
+```
+
+or for one run with `AGITO_ACCESSIBILITY_MODE=enforce cargo test`, or with
+[`agito run --a11y enforce`](../running/agito-run.md#accessibility). Each context then audits
+after every navigation, and keeps each violation it finds once:
+
+- **`warn`** reports what it finds and never fails a test. `agito run` lists violations under
+  each test and in its reports; under plain `cargo test` they print with the test's output,
+  which `cargo test` shows for failing tests, or for all with `--nocapture`.
+- **`enforce`** also fails an `#[agito::test]` that leaves errors behind (and warnings, unless
+  `includeWarnings` is off), once its body has finished. A test that failed on its own keeps
+  its own failure.
+
+Set `auditAfterActions` to also audit after clicks, fills, selects and checks, which change a
+page without navigating, at the cost of many more audits. `skipRules` leaves rules out.
+
+One test can differ from the rest through its [context options](fixtures.md#context-options),
+and read what the audits found from its context:
+
+```rust,ignore
+use agito::accessibility::{AccessibilityMode, AccessibilityOptions};
+
+fn audited() -> ContextOptions {
+    let mut accessibility = AccessibilityOptions::off();
+    accessibility.mode = AccessibilityMode::Warn;
+    accessibility.audit_after_actions = true;
+    ContextOptions {
+        accessibility,
+        ..ContextOptions::default()
+    }
+}
+
+#[agito::test(context = audited)]
+async fn the_wizard_stays_accessible(context: BrowserContext, page: Page) -> agito::Result<()> {
+    page.goto("https://shop.test/checkout").await?;
+    // ...
+    for violation in context.accessibility_violations() {
+        println!("{violation}");
+    }
+    Ok(())
+}
+```
+
 ## Options
 
 ```rust,ignore
