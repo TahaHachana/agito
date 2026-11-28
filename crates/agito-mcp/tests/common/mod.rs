@@ -104,3 +104,79 @@ pub async fn http_server(route: fn(&str, &str) -> (u16, &'static str, String)) -
     });
     origin
 }
+
+/// A browser started the way a person starts one to be driven: with a debugging port, open
+/// at `url`. Killed when dropped.
+pub struct RunningChrome {
+    process: tokio::process::Child,
+    profile: std::path::PathBuf,
+    pub endpoint: String,
+}
+
+impl RunningChrome {
+    pub async fn start(name: &str, url: &str) -> RunningChrome {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+        let executable = agito::launch::finder::resolve(
+            None,
+            agito::LaunchOptions::default().executable_path.as_deref(),
+        )
+        .unwrap();
+        let profile = std::env::temp_dir().join(format!("agito-mcp-{name}-{}", std::process::id()));
+        let mut process = tokio::process::Command::new(executable)
+            .args([
+                "--headless=new",
+                "--remote-debugging-port=0",
+                "--no-first-run",
+                "--no-sandbox",
+                url,
+            ])
+            .arg(format!("--user-data-dir={}", profile.display()))
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .expect("chrome starts");
+        let mut lines = BufReader::new(process.stderr.take().unwrap()).lines();
+        let endpoint = loop {
+            let line = lines
+                .next_line()
+                .await
+                .unwrap()
+                .expect("chrome printed its endpoint");
+            if let Some(url) = line.strip_prefix("DevTools listening on ") {
+                break url.trim().to_owned();
+            }
+        };
+        tokio::spawn(async move { while let Ok(Some(_)) = lines.next_line().await {} });
+        RunningChrome {
+            process,
+            profile,
+            endpoint,
+        }
+    }
+
+    /// The titles of the tabs open in the browser's own context, read over a connection of
+    /// its own.
+    pub async fn titles(&self) -> Vec<String> {
+        let browser = agito::connect(&self.endpoint, agito::ConnectOptions::default())
+            .await
+            .unwrap();
+        let context = browser
+            .default_context(agito::ContextOptions::default())
+            .await
+            .unwrap();
+        let mut titles = Vec::new();
+        for page in context.pages() {
+            titles.push(page.title().await.unwrap());
+        }
+        titles.sort();
+        browser.disconnect().await.unwrap();
+        titles
+    }
+}
+
+impl Drop for RunningChrome {
+    fn drop(&mut self) {
+        let _ = self.process.start_kill();
+        let _ = std::fs::remove_dir_all(&self.profile);
+    }
+}

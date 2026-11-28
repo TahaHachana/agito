@@ -51,6 +51,7 @@ async fn the_catalog_lists_the_always_available_tools() {
             "tab_open",
             "tab_select",
             "type",
+            "upload_files",
             "wait_for",
             "wait_for_element",
         ]

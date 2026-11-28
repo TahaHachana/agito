@@ -173,6 +173,65 @@ impl Browser {
         Ok(context)
     }
 
+    /// The browser's own default context, with the tabs already open in it: what a person
+    /// using a browser started with a debugging port is looking at, signed-in sessions and
+    /// all. For a browser agito [connected](crate::connect) to; a launched browser's default
+    /// context is not one agito uses.
+    ///
+    /// The context is adopted, not created: nothing is emulated on its pages (`options`'
+    /// viewport, user agent, locale, time zone, colour scheme, certificate errors and extra
+    /// headers are left out), its downloads are not redirected, and closing it lets go of it,
+    /// leaving its windows open. Timeouts and the rest of `options` apply. Asking again
+    /// returns the same context.
+    pub async fn default_context(&self, options: ContextOptions) -> Result<BrowserContext> {
+        if let Some(adopted) = self.contexts().into_iter().find(|c| c.inner.adopted) {
+            return Ok(adopted);
+        }
+        let session = self.browser_session();
+        let id = session
+            .send(&target::GetBrowserContextsParams::default())
+            .await?
+            .default_browser_context_id
+            .ok_or_else(|| crate::Error::other("The browser did not name its default context."))?;
+        let tabs = |targets: Vec<target::TargetInfo>| -> Vec<String> {
+            targets
+                .into_iter()
+                .filter(|t| t.r#type == "page" && t.browser_context_id.as_deref() == Some(&id))
+                .map(|t| t.target_id)
+                .collect()
+        };
+        let open = tabs(
+            session
+                .send(&target::GetTargetsParams::default())
+                .await?
+                .target_infos,
+        );
+        // The person's browser is driven as it is: nothing it shows is emulated.
+        let options = ContextOptions {
+            viewport: None,
+            user_agent: None,
+            locale: None,
+            timezone_id: None,
+            color_scheme: None,
+            ignore_https_errors: false,
+            extra_http_headers: Default::default(),
+            ..options
+        };
+        let context = BrowserContext::create_with(self.clone(), id.clone(), options, true).await?;
+        self.inner
+            .contexts
+            .lock()
+            .unwrap()
+            .push(Arc::downgrade(&context.inner));
+        for tab in open {
+            // A tab that closed meanwhile is simply not adopted.
+            if let Err(e) = context.adopt_open_tab(&tab).await {
+                tracing::debug!(tab = %tab, error = %e, "an open tab was not adopted");
+            }
+        }
+        Ok(context)
+    }
+
     /// Opens a new context with one page in it.
     pub async fn new_page(&self, options: ContextOptions) -> Result<Page> {
         let context = self.new_context(options).await?;

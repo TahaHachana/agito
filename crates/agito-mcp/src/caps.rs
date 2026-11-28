@@ -479,6 +479,39 @@ impl AgitoServer {
     }
 }
 
+/// `browser_attach`'s arguments.
+#[derive(Deserialize, JsonSchema)]
+pub struct AttachArgs {
+    /// The browser's debugging endpoint, e.g. http://127.0.0.1:9222, or its CDP WebSocket URL.
+    endpoint: String,
+}
+
+#[tool_router(router = attach_tools, vis = "pub(crate)")]
+impl AgitoServer {
+    #[tool(
+        name = "browser_attach",
+        description = "Connects to a browser that is already running and drives what is open in \
+            it, instead of the browser this server started, which is closed. The attached browser \
+            is never closed by the server. Refs, mock rules, logs and named contexts do not carry \
+            over: take a snapshot afterwards.",
+        annotations(title = "Attach to a running browser", destructive_hint = true)
+    )]
+    async fn browser_attach(&self, Parameters(args): Parameters<AttachArgs>) -> CallToolResult {
+        if args.endpoint.trim().is_empty() {
+            return error("endpoint is required.");
+        }
+        match self.session.lock().await.attach(&args.endpoint).await {
+            Ok(tabs) => text(format!(
+                "Attached to the browser at {}; {tabs} tab{} open. Take a snapshot before \
+                 addressing elements.",
+                args.endpoint,
+                if tabs == 1 { " is" } else { "s are" }
+            )),
+            Err(e) => error(format!("Attaching to {} failed: {e}", args.endpoint)),
+        }
+    }
+}
+
 #[tool_router(router = context_tools, vis = "pub(crate)")]
 impl AgitoServer {
     #[tool(

@@ -54,8 +54,22 @@ let page = browser.new_page(Default::default()).await?;
 browser.disconnect().await?; // leaves the browser running
 ```
 
-It takes the `http://host:port` address or a `ws://` endpoint. agito works in contexts it
-creates; it does not take over tabs that were already open.
+It takes the `http://host:port` address or a `ws://` endpoint. `new_page` and `new_context`
+work in contexts agito creates, isolated from what the browser already had open.
+
+To drive what is already open instead, such as a signed-in profile, adopt the browser's own
+default context:
+
+```rust,ignore
+let context = browser.default_context(Default::default()).await?;
+let tab = &context.pages()[0]; // the tabs already open, as they are
+// ...
+context.close().await?; // lets go of the context; its windows stay open
+```
+
+Nothing is emulated on an adopted context's pages (viewport, user agent, locale and the like
+are left as the browser has them), its downloads are not redirected, and closing it lets go of
+it rather than closing anything.
 
 ## From the command line
 

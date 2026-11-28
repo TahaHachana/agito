@@ -19,6 +19,13 @@
   (`console_messages`, `network_requests`, `network_request`), prints frames inside page
   snapshots with frame-prefixed refs (`frame_list`, `frame_select`), and audits pages
   (`audit_accessibility`).
+- `agito mcp --http` serves Streamable HTTP, with a browser per client session and a bearer
+  token (`--token`, `AGITO_MCP_TOKEN`) required off loopback. `--connect` drives a browser
+  that is already running, adopting its open tabs and leaving it running; `browser_attach`
+  (with `--allow-attach`) attaches mid-session. `upload_files` sets file inputs, reading only
+  inside the MCP client's roots.
+- `Browser::default_context` adopts a connected browser's own default context and the tabs
+  open in it, without emulating anything on them; closing it lets go of it.
 - `agito mcp --caps` adds optional tool groups: `coordinates` (`click_xy`, `hover_xy`,
   `move_xy`, `scroll_xy`, `drag`, `resize`), `contexts` (`context_list`, `context_create`,
   `context_select`, `context_close`) and `routing` (`route_fulfill`, `route_abort`,
