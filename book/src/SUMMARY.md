@@ -26,6 +26,7 @@
 - [Files and dialogs](writing/files-and-dialogs.md)
 - [Page objects](writing/page-objects.md)
 - [Flaky tests](writing/flaky-tests.md)
+- [Tracing](writing/tracing.md)
 
 # Running tests
 

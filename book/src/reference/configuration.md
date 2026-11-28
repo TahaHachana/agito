@@ -33,7 +33,7 @@ A file that cannot be parsed is ignored with a warning, rather than failing ever
   },
   "locator": { "timeout": 30000 },
   "assertions": { "timeout": 10000 },
-  "failure": { "screenshot": true, "screenshotPath": "target/agito-failures" },
+  "failure": { "screenshot": true, "trace": true, "screenshotPath": "target/agito-failures" },
   "accessibility": { "mode": "warn", "auditAfterActions": false, "skipRules": [] }
 }
 ```
@@ -100,6 +100,8 @@ Automatic accessibility audits: see [Accessibility](../writing/accessibility.md#
 |---|---|---|---|
 | `screenshot` | `AGITO_FAILURES_SCREENSHOT` | `false` | Save a screenshot of the page when an `#[agito::test]` fails |
 | `screenshotPath` | `AGITO_FAILURES_SCREENSHOT_PATH` | `target/agito-failures` | Where to save them, relative to the test's working directory |
+| `trace` | `AGITO_FAILURES_TRACE` | `false` | [Trace](../writing/tracing.md) every `#[agito::test]`, keeping the trace of each that fails |
+| `tracePath` | `AGITO_FAILURES_TRACE_PATH` | `target/agito-failures` | Where to save the traces |
 
 ## Other variables
 

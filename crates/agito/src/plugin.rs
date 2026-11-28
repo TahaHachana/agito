@@ -65,6 +65,8 @@ pub trait Plugin: Send + Sync + 'static {
 pub struct ActionResult {
     /// The action's name, such as `click`.
     pub action: String,
+    /// What it acted on: the locator's description, such as `#submit`.
+    pub target: String,
     /// The error message when the action failed.
     pub error: Option<String>,
 }

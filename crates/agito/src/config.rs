@@ -138,6 +138,10 @@ pub struct FailureConfig {
     pub screenshot: Option<bool>,
     /// Where to save them.
     pub screenshot_path: Option<String>,
+    /// Record a trace of each `#[agito::test]`, and keep it when the test fails.
+    pub trace: Option<bool>,
+    /// Where to save the traces.
+    pub trace_path: Option<String>,
 }
 
 /// The name of the configuration file.
@@ -245,6 +249,12 @@ fn apply_env(c: &mut Config, env: &dyn Fn(&str) -> Option<String>) {
     }
     if let Some(v) = non_empty(env("AGITO_FAILURES_SCREENSHOT_PATH")) {
         c.failure.screenshot_path = Some(v);
+    }
+    if let Some(v) = parse_bool(env("AGITO_FAILURES_TRACE")) {
+        c.failure.trace = Some(v);
+    }
+    if let Some(v) = non_empty(env("AGITO_FAILURES_TRACE_PATH")) {
+        c.failure.trace_path = Some(v);
     }
     if let Some(v) = non_empty(env("AGITO_ACCESSIBILITY_MODE")) {
         c.accessibility.mode = Some(v);

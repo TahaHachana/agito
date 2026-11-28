@@ -59,6 +59,8 @@ pub(crate) struct BrowserInner {
     pub pages_by_session: Mutex<HashMap<String, Weak<PageInner>>>,
     closed: AtomicBool,
     pump: Mutex<Option<JoinHandle<()>>>,
+    /// Held while a context records a performance timeline: Chrome records one at a time.
+    pub(crate) timeline: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl Browser {
@@ -84,6 +86,7 @@ impl Browser {
             pages_by_session: Mutex::new(HashMap::new()),
             closed: AtomicBool::new(false),
             pump: Mutex::new(None),
+            timeline: Arc::default(),
         });
         let pump = tokio::spawn(target_pump(Arc::downgrade(&inner), session.clone()));
         *inner.pump.lock().unwrap() = Some(pump);
