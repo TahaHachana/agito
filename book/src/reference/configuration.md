@@ -69,6 +69,19 @@ Every key is optional. Times are in milliseconds.
 | `locator.timeout` | `AGITO_LOCATOR_TIMEOUT` | 30000 | How long an action waits for its element |
 | `assertions.timeout` | `AGITO_ASSERTIONS_TIMEOUT` | 10000 | How long an `expect` assertion retries |
 
+### performance
+
+The budget `to_meet_performance_budget` checks when a test sets none: see
+[Performance](../writing/performance.md#budgets). Each key is a threshold, and an unset one is
+not checked.
+
+| Key | Meaning |
+|---|---|
+| `lcp`, `fcp`, `ttfb`, `inp` | Largest Contentful Paint, First Contentful Paint, Time To First Byte and Interaction to Next Paint, in milliseconds |
+| `cls` | Cumulative Layout Shift |
+| `jsHeapSize` | The JavaScript heap in use, in bytes |
+| `domNodes` | How many DOM nodes a page holds |
+
 ### accessibility
 
 Automatic accessibility audits: see [Accessibility](../writing/accessibility.md#auditing-every-page-automatically).

@@ -118,10 +118,10 @@ planned. That way the attribute can be used as `#[agito::test]`.
 | 3 | Plugins, selectors, locators, network/routing/HAR, dialogs, popups, uploads, downloads | Done |
 | 4 | `expect`, `#[agito::test]`, samples | Done; smaller gaps remain |
 | 5 | Firefox over WebDriver BiDi | Deferred until there is demand |
-| 6 | Accessibility, performance, coverage, tracing, video | In progress: accessibility done |
+| 6 | Accessibility, performance, coverage, tracing, video | In progress: accessibility and performance done; tracing, video and coverage next |
 | 7 | CLI | Done; `run` settings in `agito.config.json` left |
 | 8 | Recorder, codegen, check-selectors | Not started |
-| 9 | MCP server | Done, but for the recording group, `get_performance` and `generate_pom`, which wait for phases 6 and 8 |
+| 9 | MCP server | Done, but for the recording group and `generate_pom`, which wait for phases 6 and 8 |
 | 10 | Visual runner | Not started |
 
 Releases: 0.1.0 covered phases 0-4 (MVP); 0.2.0 added iframes and network; 0.3.0 added
@@ -150,8 +150,8 @@ phase number:
      `evaluate`, tabs, `browser_status`).
    - B, done: action reports and the settle wait, dialogs, console and network logs, frames
      (frame-prefixed refs, `frame_list`, `frame_select`), `audit_accessibility` and
-     `handle_dialog`. `get_performance` follows phase 6's performance metrics, and
-     `generate_pom` phase 8's code generation.
+     `handle_dialog`. `get_performance` came with phase 6's performance metrics, and
+     `generate_pom` follows phase 8's code generation.
    - C, done: the `--caps` groups: coordinates, contexts and routing. Recording follows
      tracing and video.
    - D, done: streamable HTTP with a bearer token, client roots for `upload_files`, and
@@ -175,7 +175,7 @@ The first four items are step 2 of the [order of work](#order-of-work).
   signal handlers.
 - **Connecting:** done. `Browser::default_context` takes over the tabs already open in a
   browser agito connects to.
-- **Harness options:** `launch = fn`, `perf_budget(...)` and failure tracing.
+- **Harness options:** `launch = fn` and failure tracing. `perf_budget(...)` is done.
 - **Windows:** killing the shared test browser at process exit.
 
 ### Phase 5: Firefox / WebDriver BiDi (deferred)
@@ -211,7 +211,9 @@ The plan, when it comes:
   - Done too: the audit hook, which audits after navigations and actions in warn or enforce
     mode with skippable rules, set in `agito.config.json`; the harness failing an
     `#[agito::test]` in enforce mode; and `agito run --a11y` reporting violations.
-- **Performance:** the metrics collector, budgets, and LCP/FCP/TTFB/CLS/INP assertions.
+- **Performance:** done. `page.performance_metrics()` reads buffered entries on demand, so
+  no collector needs installing; budgets from code, the test attribute or the config; and the
+  LCP/FCP/TTFB/CLS/INP assertions.
 - **Coverage:** JS precise coverage and CSS rule usage, the aggregator and thresholds, and
   source-map remapping (VLQ decoder, parser, fetcher, remapper).
 - **Tracing:** the zip packager, using Motus's layout: `trace.json`, `har.json`, screenshots.

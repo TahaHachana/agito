@@ -24,6 +24,8 @@ pub struct Config {
     pub failure: FailureConfig,
     /// `accessibility`: automatic accessibility audits.
     pub accessibility: AccessibilityConfig,
+    /// `performance`: the default performance budget.
+    pub performance: PerformanceConfig,
 }
 
 /// The `launch` section.
@@ -88,6 +90,28 @@ pub struct LocatorConfig {
 pub struct AssertionsConfig {
     /// Default assertion timeout, in milliseconds.
     pub timeout: Option<u64>,
+}
+
+/// The `performance` section: the budget [`PerformanceBudget::default`] reads.
+///
+/// [`PerformanceBudget::default`]: crate::performance::PerformanceBudget
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PerformanceConfig {
+    /// Largest Contentful Paint, in milliseconds.
+    pub lcp: Option<f64>,
+    /// First Contentful Paint, in milliseconds.
+    pub fcp: Option<f64>,
+    /// Time To First Byte, in milliseconds.
+    pub ttfb: Option<f64>,
+    /// Cumulative Layout Shift.
+    pub cls: Option<f64>,
+    /// Interaction to Next Paint, in milliseconds.
+    pub inp: Option<f64>,
+    /// The JavaScript heap in use, in bytes.
+    pub js_heap_size: Option<u64>,
+    /// How many DOM nodes a page holds.
+    pub dom_nodes: Option<u64>,
 }
 
 /// The `accessibility` section.

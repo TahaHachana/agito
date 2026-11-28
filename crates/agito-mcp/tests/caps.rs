@@ -37,7 +37,7 @@ async fn eval(h: &Harness, expression: &str) -> Value {
 async fn groups_only_add_to_the_catalog() {
     let plain = Harness::start().await;
     let base = names(&plain).await;
-    assert_eq!(base.len(), 32);
+    assert_eq!(base.len(), 33);
     assert!(!base.contains(&"click_xy".to_owned()));
     plain.stop().await;
 

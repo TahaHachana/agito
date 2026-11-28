@@ -3,11 +3,19 @@
 ## Unreleased
 
 ### Breaking changes
+- `harness::TestOptions` has a new field, `perf_budget`.
 - `ContextOptions` has new fields, `storage_state` and `accessibility`, and `LaunchOptions`
   and `ConnectOptions` have a new field, `protocol_log`. Code that builds them with
   `..Default::default()`, as the docs do, is unaffected.
 
 ### Added
+- Performance: `page.performance_metrics()` reads the Core Web Vitals (LCP, FCP, TTFB, CLS as
+  its worst session window, INP from interaction durations), the JS heap size, the DOM node
+  count and each layout shift with the elements that moved, with nothing to enable first.
+  `PerformanceBudget` sets thresholds, from code, `#[agito::test(perf_budget(...))]` or the
+  `performance` section of `agito.config.json`, checked by `to_meet_performance_budget`;
+  `to_have_lcp_below`, `to_have_fcp_below`, `to_have_ttfb_below`, `to_have_cls_below` and
+  `to_have_inp_below` check one metric. The MCP server gains `get_performance`.
 - `agito mcp`, a Model Context Protocol server (the new `agito-mcp` crate) that lets AI agents
   drive a browser: navigation, accessibility snapshots with refs that the interaction tools
   take, clicks, typing, keys, selects, checkboxes, waits, `evaluate`, screenshots and tabs. It

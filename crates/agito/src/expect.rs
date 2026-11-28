@@ -602,6 +602,137 @@ impl PageAssertions {
         .await
     }
 
+    /// The page meets the performance budget in force: the running test's, set with
+    /// `#[agito::test(perf_budget(...))]`, or else the `performance` section of
+    /// `agito.config.json`. See [`to_meet_performance_budget_with`](Self::to_meet_performance_budget_with).
+    pub async fn to_meet_performance_budget(self) -> Result<()> {
+        let budget = crate::performance::current_budget();
+        if budget.is_empty() {
+            return Err(Error::invalid_argument(
+                "no performance budget is in force: set one with #[agito::test(perf_budget(...))] \
+                 or in the performance section of agito.config.json, or pass one to \
+                 to_meet_performance_budget_with",
+            ));
+        }
+        self.to_meet_performance_budget_with(&budget).await
+    }
+
+    /// Every threshold `budget` sets holds for the page's metrics, retrying until it does or
+    /// the timeout passes, since LCP and CLS keep changing while a page loads. A metric the
+    /// page has not produced, such as INP before any interaction, passes.
+    ///
+    /// ```no_run
+    /// # async fn example(page: agito::Page) -> agito::Result<()> {
+    /// use agito::expect;
+    /// use agito::performance::PerformanceBudget;
+    ///
+    /// let budget = PerformanceBudget {
+    ///     lcp: Some(2500.0),
+    ///     cls: Some(0.1),
+    ///     ..PerformanceBudget::none()
+    /// };
+    /// expect(&page).to_meet_performance_budget_with(&budget).await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn to_meet_performance_budget_with(
+        self,
+        budget: &crate::performance::PerformanceBudget,
+    ) -> Result<()> {
+        let page = self.page.clone();
+        let budget = budget.clone();
+        let expected = budget
+            .checks(&Default::default())
+            .iter()
+            .map(|c| format!("{} <= {}", c.metric, c.threshold))
+            .collect::<Vec<_>>()
+            .join(", ");
+        retry_until(
+            &self.settings,
+            "to_meet_performance_budget",
+            &expected,
+            None,
+            || Some(page.url()),
+            || {
+                let page = page.clone();
+                let budget = budget.clone();
+                async move {
+                    let metrics = page.performance_metrics().await?;
+                    let checks = budget.checks(&metrics);
+                    let passed = checks.iter().all(|c| c.passed);
+                    let actual = checks
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join("; ");
+                    Ok((passed, actual))
+                }
+            },
+        )
+        .await
+    }
+
+    /// Largest Contentful Paint is at or under `ms`, retrying until it is.
+    pub async fn to_have_lcp_below(self, ms: f64) -> Result<()> {
+        self.metric_below("to_have_lcp_below", "LCP", ms, |m| m.lcp)
+            .await
+    }
+
+    /// First Contentful Paint is at or under `ms`, retrying until it is.
+    pub async fn to_have_fcp_below(self, ms: f64) -> Result<()> {
+        self.metric_below("to_have_fcp_below", "FCP", ms, |m| m.fcp)
+            .await
+    }
+
+    /// Time To First Byte is at or under `ms`, retrying until it is.
+    pub async fn to_have_ttfb_below(self, ms: f64) -> Result<()> {
+        self.metric_below("to_have_ttfb_below", "TTFB", ms, |m| m.ttfb)
+            .await
+    }
+
+    /// Cumulative Layout Shift is at or under `score`, retrying until it is.
+    pub async fn to_have_cls_below(self, score: f64) -> Result<()> {
+        self.metric_below("to_have_cls_below", "CLS", score, |m| m.cls)
+            .await
+    }
+
+    /// Interaction to Next Paint is at or under `ms`, retrying until it is. Unlike a budget,
+    /// this fails while no interaction has been measured, and so does its `not()`.
+    pub async fn to_have_inp_below(self, ms: f64) -> Result<()> {
+        self.metric_below("to_have_inp_below", "INP", ms, |m| m.inp)
+            .await
+    }
+
+    async fn metric_below(
+        self,
+        name: &str,
+        metric: &'static str,
+        threshold: f64,
+        read: fn(&crate::performance::PerformanceMetrics) -> Option<f64>,
+    ) -> Result<()> {
+        let page = self.page.clone();
+        // A metric not measured yet fails either way: "not below" must not pass on a metric
+        // the page has yet to produce.
+        let unmeasured = self.settings.negate;
+        retry_until(
+            &self.settings,
+            name,
+            &format!("{metric} <= {threshold}"),
+            None,
+            || Some(page.url()),
+            || {
+                let page = page.clone();
+                async move {
+                    let metrics = page.performance_metrics().await?;
+                    Ok(match read(&metrics) {
+                        Some(actual) => (actual <= threshold, format!("{metric} {actual}")),
+                        None => (unmeasured, format!("{metric} not measured")),
+                    })
+                }
+            },
+        )
+        .await
+    }
+
     /// The page and its iframes pass an accessibility audit: no error or warning from any
     /// registered rule. See [`Page::audit_accessibility`].
     ///

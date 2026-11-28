@@ -31,6 +31,7 @@ async fn the_catalog_lists_the_always_available_tools() {
             "focus",
             "frame_list",
             "frame_select",
+            "get_performance",
             "go_back",
             "go_forward",
             "handle_dialog",

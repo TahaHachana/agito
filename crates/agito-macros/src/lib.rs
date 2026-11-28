@@ -14,7 +14,9 @@ use syn::{Expr, FnArg, ItemFn, ItemStruct, Lit, Meta, Pat, Token, Type, parse_ma
 ///
 /// Options: `retries = N` (re-runs after a lost browser, default 1),
 /// `context = path::to_fn` (a `fn() -> agito::ContextOptions`), and
-/// `quarantine = "reason"` (the test runs, but its failure is reported rather than failing).
+/// `quarantine = "reason"` (the test runs, but its failure is reported rather than failing),
+/// and `perf_budget(lcp = 2500, cls = 0.1, ...)` (the budget `to_meet_performance_budget`
+/// holds the test to: `lcp`, `fcp`, `ttfb`, `cls`, `inp`, `js_heap_size`, `dom_nodes`).
 #[proc_macro_attribute]
 pub fn test(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemFn);
@@ -38,11 +40,19 @@ fn expand_test(
     let mut retries = quote! { 1u32 };
     let mut context = quote! { ::agito::ContextOptions::default };
     let mut quarantine = quote! { ::core::option::Option::None };
+    let mut perf_budget = quote! { ::core::option::Option::None };
     for arg in args {
+        if let Meta::List(list) = &arg
+            && list.path.is_ident("perf_budget")
+        {
+            perf_budget = parse_perf_budget(list)?;
+            continue;
+        }
         let Meta::NameValue(nv) = &arg else {
             return Err(syn::Error::new_spanned(
                 arg,
-                "expected `retries = N`, `context = path` or `quarantine = \"reason\"`",
+                "expected `retries = N`, `context = path`, `quarantine = \"reason\"` or \
+                 `perf_budget(...)`",
             ));
         };
         if nv.path.is_ident("retries") {
@@ -72,7 +82,7 @@ fn expand_test(
         } else {
             return Err(syn::Error::new_spanned(
                 &nv.path,
-                "unknown option; expected `retries`, `context` or `quarantine`",
+                "unknown option; expected `retries`, `context`, `quarantine` or `perf_budget`",
             ));
         }
     }
@@ -120,6 +130,7 @@ fn expand_test(
                     retries: #retries,
                     context: #context,
                     quarantine: #quarantine,
+                    perf_budget: #perf_budget,
                 },
                 |__agito_fixtures: ::agito::harness::Fixtures| async move {
                     #(#bindings)*
@@ -138,6 +149,58 @@ fn fixture_for(ty: &Type) -> Option<&'static str> {
         "Browser" => Some("browser"),
         _ => None,
     }
+}
+
+/// `perf_budget(lcp = 2500, cls = 0.1)`: each metric a number, times in milliseconds.
+fn parse_perf_budget(list: &syn::MetaList) -> syn::Result<proc_macro2::TokenStream> {
+    let entries =
+        list.parse_args_with(Punctuated::<syn::MetaNameValue, Token![,]>::parse_terminated)?;
+    let mut fields = Vec::new();
+    for entry in entries {
+        let Some(name) = entry.path.get_ident().map(ToString::to_string) else {
+            return Err(syn::Error::new_spanned(
+                &entry.path,
+                "expected a metric name",
+            ));
+        };
+        let Expr::Lit(syn::ExprLit { lit, .. }) = &entry.value else {
+            return Err(syn::Error::new_spanned(&entry.value, "expected a number"));
+        };
+        let field = format_ident!("{}", name);
+        let value = match (name.as_str(), lit) {
+            ("lcp" | "fcp" | "ttfb" | "cls" | "inp", Lit::Int(i)) => {
+                let v: f64 = i.base10_parse()?;
+                quote! { #v }
+            }
+            ("lcp" | "fcp" | "ttfb" | "cls" | "inp", Lit::Float(f)) => {
+                let v: f64 = f.base10_parse()?;
+                quote! { #v }
+            }
+            ("js_heap_size" | "dom_nodes", Lit::Int(i)) => {
+                let v: u64 = i.base10_parse()?;
+                quote! { #v }
+            }
+            ("js_heap_size" | "dom_nodes", _) => {
+                return Err(syn::Error::new_spanned(lit, "expected a whole number"));
+            }
+            ("lcp" | "fcp" | "ttfb" | "cls" | "inp", _) => {
+                return Err(syn::Error::new_spanned(lit, "expected a number"));
+            }
+            _ => {
+                return Err(syn::Error::new_spanned(
+                    &entry.path,
+                    "unknown metric; expected lcp, fcp, ttfb, cls, inp, js_heap_size or dom_nodes",
+                ));
+            }
+        };
+        fields.push(quote! { #field: ::core::option::Option::Some(#value) });
+    }
+    Ok(quote! {
+        ::core::option::Option::Some(::agito::performance::PerformanceBudget {
+            #(#fields,)*
+            ..::agito::performance::PerformanceBudget::none()
+        })
+    })
 }
 
 /// Registers a plugin type so every context loads it. The type must implement

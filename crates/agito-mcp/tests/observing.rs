@@ -348,3 +348,26 @@ async fn a_frame_navigating_on_its_own_retires_its_refs() {
     );
     h.stop().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn performance_reads_the_vitals() {
+    let origin =
+        http_server(|_, _| (200, "text/html", "<title>Fast</title><h1>Hello</h1>".into())).await;
+    let h = Harness::start().await;
+    h.ok("navigate", json!({ "url": format!("{origin}/") }))
+        .await;
+    let result = h.call("get_performance", json!({})).await;
+    let summary = common::text_of(&result);
+    assert!(summary.starts_with("LCP "), "{summary}");
+    assert!(summary.contains(" CLS 0.000, INP n/a."), "{summary}");
+    let metrics = result.structured_content.expect("structured metrics");
+    assert!(
+        metrics["fcp"].as_f64().is_some_and(|v| v > 0.0),
+        "{metrics}"
+    );
+    assert!(
+        metrics["domNodes"].as_u64().is_some_and(|n| n > 0),
+        "{metrics}"
+    );
+    h.stop().await;
+}

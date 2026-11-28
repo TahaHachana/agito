@@ -116,6 +116,9 @@ pub struct TestOptions {
     pub context: fn() -> ContextOptions,
     /// Why the test is quarantined: it still runs, but a failure is reported, not raised.
     pub quarantine: Option<&'static str>,
+    /// The performance budget `to_meet_performance_budget` holds the test to, in place of
+    /// the configuration's.
+    pub perf_budget: Option<crate::performance::PerformanceBudget>,
 }
 
 impl Default for TestOptions {
@@ -124,6 +127,7 @@ impl Default for TestOptions {
             retries: 1,
             context: ContextOptions::default,
             quarantine: None,
+            perf_budget: None,
         }
     }
 }
@@ -260,9 +264,11 @@ where
         Ok(f) => f,
         Err(e) => return (Attempt::SetupFailed(e), None, Vec::new()),
     };
-    let outcome = AssertUnwindSafe(body(fixtures.clone()))
-        .catch_unwind()
-        .await;
+    let run = AssertUnwindSafe(body(fixtures.clone())).catch_unwind();
+    let outcome = match options.perf_budget.clone() {
+        Some(budget) => crate::performance::TEST_BUDGET.scope(budget, run).await,
+        None => run.await,
+    };
     let accessibility = fixtures.context.accessibility_violations();
     let a11y = &fixtures.context.options().accessibility;
     let a11y_failure = (a11y.mode == AccessibilityMode::Enforce)
