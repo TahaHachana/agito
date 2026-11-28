@@ -13,6 +13,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use super::events::{EventStream, RawEvent, event_key};
+use super::log::ProtocolLog;
 use super::socket::{SocketPair, SocketReceiver, SocketSender};
 
 /// How long a command may go unanswered before the browser is treated as unresponsive.
@@ -91,6 +92,7 @@ struct Inner {
     options: ConnectionOptions,
     shutdown: CancellationToken,
     receive_task: Mutex<Option<JoinHandle<()>>>,
+    log: Option<Arc<ProtocolLog>>,
 }
 
 #[derive(Serialize)]
@@ -123,6 +125,15 @@ impl CdpConnection {
     /// Takes over an open socket and starts the receive loop. Must be called inside a tokio
     /// runtime, which then owns the loop.
     pub fn start(socket: SocketPair, options: ConnectionOptions) -> Self {
+        Self::start_with_log(socket, options, None)
+    }
+
+    /// [`CdpConnection::start`], writing every message to `log`.
+    pub(crate) fn start_with_log(
+        socket: SocketPair,
+        options: ConnectionOptions,
+        log: Option<Arc<ProtocolLog>>,
+    ) -> Self {
         let (state, _) = watch::channel(ConnectionState::Open);
         let inner = Arc::new(Inner {
             sender: tokio::sync::Mutex::new(socket.sender),
@@ -133,6 +144,7 @@ impl CdpConnection {
             options,
             shutdown: CancellationToken::new(),
             receive_task: Mutex::new(None),
+            log,
         });
         let task = tokio::spawn(receive_loop(
             Arc::downgrade(&inner),
@@ -210,6 +222,10 @@ impl CdpConnection {
             tracing::trace!(target: "agito::protocol", id, method, session_id, "send");
             {
                 let mut sender = self.inner.sender.lock().await;
+                // Under the send lock, so the log's order is the order on the wire.
+                if let Some(log) = &self.inner.log {
+                    log.command(id, session_id, method, params);
+                }
                 sender
                     .send(text)
                     .await
@@ -278,6 +294,10 @@ struct PendingGuard<'a> {
 impl Drop for PendingGuard<'_> {
     fn drop(&mut self) {
         self.inner.pending.lock().unwrap().remove(&self.id);
+        // Logs nothing when the answer was logged.
+        if let Some(log) = &self.inner.log {
+            log.cancelled(self.id);
+        }
     }
 }
 
@@ -294,8 +314,17 @@ async fn receive_loop(
         let Some(inner) = inner.upgrade() else { return };
         match message {
             Ok(Some(bytes)) => match serde_json::from_slice::<InboundEnvelope>(&bytes) {
-                Ok(envelope) => dispatch(&inner, envelope),
+                Ok(envelope) => {
+                    // Before dispatching, so the log keeps the order the browser sent things in.
+                    if let Some(log) = &inner.log {
+                        log_inbound(log, &envelope);
+                    }
+                    dispatch(&inner, envelope)
+                }
                 Err(e) => {
+                    if let Some(log) = &inner.log {
+                        log.malformed(&bytes);
+                    }
                     tracing::debug!(target: "agito::protocol", error = %e, "skipping malformed message")
                 }
             },
@@ -374,6 +403,22 @@ fn fail_session_commands(inner: &Inner, session_id: &str) {
 
 /// The single entry point for "the connection is gone": flips the state so later sends fail
 /// fast, fails pending commands, and ends every event stream.
+fn log_inbound(log: &ProtocolLog, envelope: &InboundEnvelope) {
+    if let Some(id) = envelope.id {
+        let error = envelope
+            .error
+            .as_ref()
+            .map(|e| (e.code, e.message.as_str()));
+        log.response(id, envelope.result.as_ref(), error);
+    } else if let Some(method) = &envelope.method {
+        log.event(
+            envelope.session_id.as_deref(),
+            method,
+            envelope.params.as_ref(),
+        );
+    }
+}
+
 fn mark_closed(inner: &Inner, error: Option<String>) {
     let changed = inner.state.send_if_modified(|state| {
         if matches!(state, ConnectionState::Open) {
@@ -403,6 +448,9 @@ fn mark_closed(inner: &Inner, error: Option<String>) {
     if changed {
         tracing::debug!(target: "agito::protocol", ?reason, "connection marked closed");
     }
+    if let Some(log) = &inner.log {
+        log.closed(reason.as_deref());
+    }
 }
 
 #[cfg(test)]
@@ -418,6 +466,77 @@ mod tests {
             fake,
             CdpConnection::start(pair, ConnectionOptions::default()),
         )
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_protocol_log_sees_the_wire_in_order() {
+        use crate::transport::log::{ProtocolLog, ProtocolLogOptions};
+
+        let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+        let seen = lines.clone();
+        let log = ProtocolLog::open(
+            &ProtocolLogOptions {
+                sink: Some(Arc::new(move |l: &str| {
+                    seen.lock().unwrap().push(l.to_owned())
+                })),
+                ..Default::default()
+            },
+            "cdp-pipe",
+            "pid 1",
+        );
+        let (fake, pair) = FakeSocket::new();
+        let conn = CdpConnection::start_with_log(
+            pair,
+            ConnectionOptions {
+                command_timeout: Duration::from_secs(5),
+                ..Default::default()
+            },
+            log,
+        );
+
+        fake.queue_response(json!({ "result": { "product": "Chrome" } }));
+        conn.send_raw("Browser.getVersion", &json!({}), None)
+            .await
+            .unwrap();
+        fake.enqueue(json!({ "method": "Page.loadEventFired", "params": {}, "sessionId": "S1" }));
+        fake.enqueue_raw(b"{not json");
+        let err = conn
+            .send_raw(
+                "Runtime.evaluate",
+                &json!({ "expression": "1" }),
+                Some("S1"),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, TransportError::Timeout(_)));
+        fake.disconnect();
+        conn.closed().await;
+
+        let entries: Vec<String> = lines
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|l| l.splitn(3, ' ').nth(2).unwrap().to_owned())
+            .collect();
+        // The receive loop runs alongside the sends, so events and commands interleave as they
+        // did on the wire; what must hold is each line's place relative to its own command.
+        let at = |prefix: &str| {
+            entries
+                .iter()
+                .position(|e| e.starts_with(prefix))
+                .unwrap_or_else(|| panic!("no line starting {prefix:?} in {entries:#?}"))
+        };
+        assert_eq!(at("open cdp-pipe pid 1"), 0);
+        assert!(at("-> #1 - Browser.getVersion {}") < at("<- #1 - Browser.getVersion"));
+        assert!(entries[at("<- #1")].ends_with(r#"ms {"product":"Chrome"}"#));
+        assert!(
+            at(r#"-> #2 S1 Runtime.evaluate {"expression":"1"}"#)
+                < at("xx #2 S1 Runtime.evaluate cancelled after")
+        );
+        at("<- event S1 Page.loadEventFired {}");
+        at("<- malformed {not json");
+        assert_eq!(entries.last().map(String::as_str), Some("closed"));
+        assert_eq!(entries.len(), 8, "{entries:#?}");
     }
 
     #[tokio::test]

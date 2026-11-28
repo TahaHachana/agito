@@ -40,6 +40,8 @@ pub struct LaunchConfig {
     pub executable_path: Option<String>,
     /// Run Chromium with its sandbox.
     pub chromium_sandbox: Option<bool>,
+    /// Log every protocol message to this file, or to `stderr`.
+    pub protocol_log: Option<String>,
 }
 
 /// The `context` section.
@@ -171,6 +173,9 @@ fn apply_env(c: &mut Config, env: &dyn Fn(&str) -> Option<String>) {
     }
     if let Some(v) = non_empty(env("AGITO_EXECUTABLE_PATH")) {
         c.launch.executable_path = Some(v);
+    }
+    if let Some(v) = non_empty(env(crate::transport::log::ENV_VAR)) {
+        c.launch.protocol_log = Some(v);
     }
     if let Some(v) = parse_bool(env("AGITO_CHROMIUM_SANDBOX")) {
         c.launch.chromium_sandbox = Some(v);

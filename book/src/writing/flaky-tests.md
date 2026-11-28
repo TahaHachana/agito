@@ -64,3 +64,40 @@ tracked.
   logged and which of its scripts threw.
 - **Watch it run.** `AGITO_HEADLESS=0 AGITO_SLOWMO=250 cargo test my_test` opens a visible
   browser and slows every step down.
+- **Read the protocol log,** below, when the question is what agito and the browser actually
+  said to each other.
+
+## The protocol log
+
+The protocol log records every message agito sends to the browser and every message it gets
+back. It settles whether a problem is in agito, the page or the browser: a command that never
+got an answer, an event that never came, or an error the browser returned.
+
+```sh
+AGITO_PROTOCOL_LOG=target/protocol.log cargo test checkout
+```
+
+`AGITO_PROTOCOL_LOG` takes a file or `stderr`; `launch.protocolLog` in
+[`agito.config.json`](../reference/configuration.md#launch) does the same, and in code
+`LaunchOptions::protocol_log` (or `ConnectOptions::protocol_log`) also takes a callback that
+receives each line. Each line has a timestamp, a connection tag such as `c1`, and what
+happened:
+
+```text
+2026-11-28T06:31:29.062Z c1 -> #53 DA67DB26... Page.navigate {"frameId":"7BC7...","url":"http://127.0.0.1:33413"}
+2026-11-28T06:31:29.211Z c1 <- #53 DA67DB26... Page.navigate 149.3ms {"frameId":"7BC7...","loaderId":"..."}
+2026-11-28T06:31:29.214Z c1 <- event DA67DB26... Page.loadEventFired {"timestamp":1234.5}
+2026-11-28T06:31:29.385Z c1 xx #126 19800925... Runtime.evaluate cancelled after 124.7ms
+```
+
+`->` is a command and `<-` its answer, with how long it took, or `error <code> "message"`.
+`<- event` is something the browser reported. `xx` is a command that never got an answer,
+because it timed out or its page went away. The long hex string is the session: one per page
+or iframe, and `-` for the browser itself.
+
+Several processes can log to one file; each starts its part with a header, and each
+connection's lines carry their own tag. Long strings are trimmed (`max_value_length`, 1024
+characters by default), and secrets are replaced: cookie values, authorization, cookie and
+token-like headers, raw header text, password fields and request bodies. What a test typed
+and the scripts it ran are logged as they are, since hiding them would hide most of what the
+log is for, so treat a log file as sensitive. On Unix it is created readable by its owner only.

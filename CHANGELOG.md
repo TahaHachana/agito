@@ -3,10 +3,18 @@
 ## Unreleased
 
 ### Breaking changes
-- `ContextOptions` has a new field, `storage_state`. Code that builds `ContextOptions` with
-  `..ContextOptions::default()`, as the docs do, is unaffected.
+- `ContextOptions` has a new field, `storage_state`, and `LaunchOptions` and
+  `ConnectOptions` have a new field, `protocol_log`. Code that builds them with
+  `..Default::default()`, as the docs do, is unaffected.
 
 ### Added
+- The protocol log: every message agito sends to the browser and every one it gets back, a
+  line each, with timings, sessions and commands that never got an answer. Turn it on with
+  `AGITO_PROTOCOL_LOG=<file or stderr>`, `launch.protocolLog` in `agito.config.json`, or
+  `LaunchOptions::protocol_log` and `ConnectOptions::protocol_log`, which also take a
+  callback. Secrets (cookie values, authorization and token headers, passwords, request
+  bodies) are replaced and long strings trimmed. Several processes can share one log file.
+- `testing::FakeSocket::enqueue_raw` delivers bytes that need not be valid JSON.
 - `Locator::filter_has` and `filter_has_not` keep the matches that contain, or do not
   contain, an element another locator matches, with any kind of selector, inside shadow roots
   too. `filter_has_not_text` is the opposite of `filter_has_text`.

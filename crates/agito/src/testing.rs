@@ -75,8 +75,13 @@ impl FakeSocket {
 
     /// Delivers a message (usually an event) from the browser.
     pub fn enqueue(&self, message: Value) {
+        self.enqueue_raw(message.to_string().as_bytes());
+    }
+
+    /// Delivers raw bytes as a message, such as one that is not valid JSON.
+    pub fn enqueue_raw(&self, bytes: &[u8]) {
         if let Some(tx) = &*self.state.inbox.lock().unwrap() {
-            let _ = tx.send(message.to_string().into_bytes());
+            let _ = tx.send(bytes.to_vec());
         }
     }
 
