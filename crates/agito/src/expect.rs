@@ -443,6 +443,73 @@ impl LocatorAssertions {
         .await
     }
 
+    /// The element's computed ARIA role is `role`, as assistive technology reports it: a
+    /// `<button>` is a `button` and a `<nav>` a `navigation` without a `role` attribute, and an
+    /// element hidden from assistive technology is `none` (or, equally, `presentation`).
+    ///
+    /// ```no_run
+    /// # async fn example(page: agito::Page) -> agito::Result<()> {
+    /// use agito::expect;
+    ///
+    /// expect(&page.locator("nav")).to_have_role("navigation").await?;
+    /// expect(&page.locator("#logo")).to_have_role("img").await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn to_have_role(self, role: &str) -> Result<()> {
+        let wanted = crate::locator::normalize_role(role).to_owned();
+        self.run("to_have_role", role, None, |l| {
+            let wanted = wanted.clone();
+            async move {
+                let actual = l.accessibility().await?.role;
+                Ok((actual == wanted, actual))
+            }
+        })
+        .await
+    }
+
+    /// The element's accessible name, what a screen reader announces it as, matches. It comes
+    /// from a label, `aria-label`, `aria-labelledby`, an image's alt text or the element's own
+    /// text, as the browser computes it.
+    ///
+    /// ```no_run
+    /// # async fn example(page: agito::Page) -> agito::Result<()> {
+    /// use agito::expect;
+    ///
+    /// // An icon-only button still needs a name.
+    /// expect(&page.locator("#close")).to_have_accessible_name("Close dialog").await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn to_have_accessible_name(self, expected: impl Into<TextMatch>) -> Result<()> {
+        let expected = expected.into();
+        let description = expected.describe();
+        self.run("to_have_accessible_name", &description, None, |l| {
+            let expected = expected.clone();
+            async move {
+                let name = l.accessibility().await?.name;
+                Ok((expected.matches(&name), name))
+            }
+        })
+        .await
+    }
+
+    /// The element's accessible description matches, such as text it points to with
+    /// `aria-describedby`.
+    pub async fn to_have_accessible_description(
+        self,
+        expected: impl Into<TextMatch>,
+    ) -> Result<()> {
+        let expected = expected.into();
+        let description = expected.describe();
+        self.run("to_have_accessible_description", &description, None, |l| {
+            let expected = expected.clone();
+            async move {
+                let actual = l.accessibility().await?.description;
+                Ok((expected.matches(&actual), actual))
+            }
+        })
+        .await
+    }
+
     /// Exactly `expected` elements match.
     pub async fn to_have_count(self, expected: usize) -> Result<()> {
         self.run(

@@ -8,6 +8,11 @@
   `..Default::default()`, as the docs do, is unaffected.
 
 ### Added
+- `to_have_role`, `to_have_accessible_name` and `to_have_accessible_description` assert what
+  assistive technology sees, from the browser's accessibility tree: the computed role
+  (implicit roles included, with ARIA's spellings such as `img` and `presentation`), the
+  accessible name and the accessible description. Names and descriptions take text or a
+  regex.
 - The protocol log: every message agito sends to the browser and every one it gets back, a
   line each, with timings, sessions and commands that never got an answer. Turn it on with
   `AGITO_PROTOCOL_LOG=<file or stderr>`, `launch.protocolLog` in `agito.config.json`, or

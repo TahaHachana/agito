@@ -37,7 +37,8 @@ const HOME: &str = r#"<!doctype html>
 </ul>
 <p id="account">Not signed in</p>
 <p>Cart: <span id="cart-count">0</span> items</p>
-<button id="empty" onclick="if (confirm('Empty the cart?')) document.querySelector('#cart-count').textContent = '0'">Empty cart</button>
+<button id="empty" aria-describedby="empty-help" onclick="if (confirm('Empty the cart?')) document.querySelector('#cart-count').textContent = '0'">Empty cart</button>
+<span id="empty-help" hidden>Removes every item from your cart</span>
 <p><a href="/report" target="_blank">Open report</a>
    <a download="orders.csv" href="data:text/csv,id%2Ctotal%0A1%2C42">Export orders</a></p>
 <label>Avatar <input type="file" id="avatar"></label>
@@ -307,6 +308,20 @@ async fn assertions(page: Page) -> agito::Result<()> {
         .to_have_text(&count)
         .await?;
     // ANCHOR_END: assertions_regex
+
+    // ANCHOR: assertions_accessibility
+    expect(&page.locator("nav"))
+        .to_have_role("navigation")
+        .await?;
+    expect(&page.get_by_label("Search"))
+        .to_have_role("textbox")
+        .await?;
+    let empty = page.locator("#empty");
+    expect(&empty).to_have_accessible_name("Empty cart").await?;
+    expect(&empty)
+        .to_have_accessible_description("Removes every item from your cart")
+        .await?;
+    // ANCHOR_END: assertions_accessibility
 
     // ANCHOR: assertions_options
     expect(&page.locator("h1"))

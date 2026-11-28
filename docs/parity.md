@@ -36,7 +36,7 @@ run real browser tests.
 | Selector strategies: css, xpath, text, data-testid, role, `_text`/`_label`/`_attr` | `selectors::*`, same prefixes and priorities |
 | `IPlugin`, `IPluginContext`, `ISelectorStrategy`, `ILifecycleHook` | `plugin::{Plugin, PluginContext, LifecycleHook}`, `selectors::SelectorStrategy` |
 | `[MotusPlugin]` + source-generated discovery | `#[agito::plugin]` + `inventory` |
-| `Expect.That(...)` locator/page/response assertions, `AssertionRetryHelper` | `agito::expect(...)`, same retry rules and messages |
+| `Expect.That(...)` locator/page/response assertions (including `ToHaveRole`, `ToHaveAccessibleName`), `AssertionRetryHelper` | `agito::expect(...)`, same retry rules and messages |
 | `MotusTestBase` + `[MotusTestClass]` retry-on-disconnect, `BrowserFixture` | `#[agito::test]` + `agito::harness` |
 | `motus.config.json`, `MOTUS_*` | `agito.config.json`, `AGITO_*` (launch, context, locator, assertions, failure subsets) |
 | `FailureCapture` (screenshot on failure) | `harness` (when `failure.screenshot` is set) |
@@ -65,7 +65,6 @@ run real browser tests.
   - Harness options `launch = fn`, `perf_budget(...)` and failure tracing.
 - **Platforms:** Windows launches over a WebSocket port. The shared test browser is killed at
   process exit only on Unix, where it is tied to the pipe.
-- **Assertions:** the accessibility-name/role assertions are missing.
 
 ## Deliberate behavior differences
 
@@ -158,6 +157,11 @@ run real browser tests.
   - A crashed binary's unreported tests are re-run alone to find the one that crashed.
   - Under plain `cargo test`, a quarantined `#[agito::test]` that fails prints a warning and
     passes.
+- `to_have_role` and `to_have_accessible_name` read the element's own accessibility node.
+  Motus took the first node in the element's subtree that the tree does not ignore, so a
+  wrapper that is itself ignored reported a descendant's role and name. agito also accepts
+  ARIA's spellings (`img`, `presentation`) where Chrome uses its own, and adds
+  `to_have_accessible_description`.
 - `filter_has` and `filter_has_not` apply. Motus accepted `Has` and `HasNot` in its locator
   options but never used them, so they matched everything. agito also adds
   `filter_has_not_text`.

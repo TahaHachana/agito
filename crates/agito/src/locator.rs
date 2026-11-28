@@ -1062,6 +1062,43 @@ impl Locator {
             .unwrap_or_default())
     }
 
+    /// The element's computed role, accessible name and description, as assistive technology
+    /// sees them, from the browser's accessibility tree.
+    pub(crate) async fn accessibility(&self) -> Result<Accessibility> {
+        use agito_protocol::cdp::accessibility::GetPartialAXTreeParams;
+
+        let handle = self.resolve_now().await?;
+        crate::transport::capabilities::require_accessibility_tree(
+            handle.session.capabilities(),
+            handle.session.transport_description(),
+            "to_have_role, to_have_accessible_name and to_have_accessible_description",
+            None,
+        )?;
+        let result = handle
+            .session
+            .send(&GetPartialAXTreeParams {
+                object_id: Some(handle.object_id().to_owned()),
+                // The element's own node, not its subtree: a generic wrapper must not report a
+                // descendant's role.
+                fetch_relatives: Some(false),
+                ..Default::default()
+            })
+            .await?;
+        let text = |v: Option<agito_protocol::cdp::accessibility::AXValue>| {
+            v.and_then(|v| v.value)
+                .and_then(|v| v.as_str().map(str::to_owned))
+                .unwrap_or_default()
+        };
+        let Some(node) = result.nodes.into_iter().next() else {
+            return Ok(Accessibility::default());
+        };
+        Ok(Accessibility {
+            role: normalize_role(&text(node.role)).to_owned(),
+            name: text(node.name),
+            description: text(node.description),
+        })
+    }
+
     pub(crate) async fn probe_eval<T: serde::de::DeserializeOwned>(
         &self,
         function: &str,
@@ -1118,6 +1155,28 @@ async fn dedupe(
         }
     }
     Ok(out)
+}
+
+/// What assistive technology reports for an element.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Accessibility {
+    /// The computed role, spelled as ARIA spells it.
+    pub role: String,
+    /// The accessible name; empty when there is none.
+    pub name: String,
+    /// The accessible description; empty when there is none.
+    pub description: String,
+}
+
+/// A role as ARIA spells it. Chrome reports `img` as `image`, and an element the
+/// accessibility tree ignores (`role="presentation"`, `aria-hidden`) as `none`, which ARIA
+/// treats as the same role as `presentation`.
+pub(crate) fn normalize_role(role: &str) -> &str {
+    match role {
+        "image" => "img",
+        "presentation" => "none",
+        other => other,
+    }
 }
 
 /// Whether `outer` contains any of `inner`, other than itself. The walk up from each inner

@@ -29,9 +29,32 @@ page's URL.
 | `to_have_class(name)` | The element has the class `name` |
 | `to_have_css(property, value)` | A computed style property has the value `value` |
 | `to_have_count(n)` | The locator matches `n` elements |
+| `to_have_role(role)` | The element's computed ARIA role is `role` |
+| `to_have_accessible_name(name)` | Its accessible name is `name`, or matches a regex |
+| `to_have_accessible_description(text)` | Its accessible description is `text`, or matches a regex |
 
 Text assertions compare the element's `textContent` exactly, spaces included. A locator that
 matches several elements is checked on the first; use `to_have_count` for how many there are.
+
+## Roles and accessible names
+
+Three assertions check an element the way assistive technology sees it, read from the
+browser's accessibility tree:
+
+```rust,ignore
+{{#include ../../../samples/agito-samples/tests/book.rs:assertions_accessibility}}
+```
+
+- **The role** is the computed one, so elements have their implicit roles without a `role`
+  attribute: a `<nav>` is a `navigation`, an `<input>` a `textbox`, a `<button>` a `button`.
+  ARIA's spellings work: `img` for an image, and `none` or `presentation` for an element
+  hidden from assistive technology.
+- **The accessible name** is what a screen reader announces: from a `<label>`, `aria-label`,
+  `aria-labelledby`, an image's alt text, or the element's own text for roles that take
+  their name from it, such as buttons, links and headings. An element with no name has the
+  name `""`, which catches an icon-only button nobody can identify by ear.
+- **The accessible description** is the extra text a screen reader reads after the name,
+  usually from `aria-describedby`.
 
 ## On a page
 
