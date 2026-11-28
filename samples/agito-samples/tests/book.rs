@@ -32,7 +32,8 @@ const HOME: &str = r#"<!doctype html>
 <ul id="featured">
   <li class="product" data-testid="product-lamp">Desk lamp <button>Add to cart</button></li>
   <li class="product" data-testid="product-mug">Coffee mug <button>Add to cart</button></li>
-  <li class="product" data-testid="product-pen">Fountain pen <button>Add to cart</button></li>
+  <li class="product" data-testid="product-pen">Fountain pen <button>Add to cart</button>
+    <span class="badge">Sold out</span></li>
 </ul>
 <p id="account">Not signed in</p>
 <p>Cart: <span id="cart-count">0</span> items</p>
@@ -222,6 +223,15 @@ async fn locators(page: Page) -> agito::Result<()> {
     expect(&page.locator("#cart-count"))
         .to_have_text("1")
         .await?;
+
+    // ANCHOR: locators_filter
+    let sold_out = products.filter_has(&page.get_by_text("Sold out"));
+    let in_stock = products.filter_has_not(&page.get_by_text("Sold out"));
+    let not_lamps = products.filter_has_not_text("lamp");
+    // ANCHOR_END: locators_filter
+    expect(&sold_out).to_contain_text("Fountain pen").await?;
+    expect(&in_stock).to_have_count(2).await?;
+    expect(&not_lamps).to_have_count(2).await?;
 
     // ANCHOR: locators_read
     let names = products.all_inner_texts().await?;
