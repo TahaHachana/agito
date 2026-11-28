@@ -12,9 +12,10 @@ use std::time::Duration;
 use agito::plugin::{LifecycleHook, Plugin, PluginContext};
 use async_trait::async_trait;
 
+use agito::storage::StorageState;
 use agito::{
-    BrowserContext, ColorScheme, ContextOptions, FilePayload, FulfillOptions, Page, Viewport,
-    expect,
+    Browser, BrowserContext, ColorScheme, ContextOptions, FilePayload, FulfillOptions, Page,
+    Viewport, expect,
 };
 use serde_json::json;
 
@@ -33,12 +34,15 @@ const HOME: &str = r#"<!doctype html>
   <li class="product" data-testid="product-mug">Coffee mug <button>Add to cart</button></li>
   <li class="product" data-testid="product-pen">Fountain pen <button>Add to cart</button></li>
 </ul>
+<p id="account">Not signed in</p>
 <p>Cart: <span id="cart-count">0</span> items</p>
 <button id="empty" onclick="if (confirm('Empty the cart?')) document.querySelector('#cart-count').textContent = '0'">Empty cart</button>
 <p><a href="/report" target="_blank">Open report</a>
    <a download="orders.csv" href="data:text/csv,id%2Ctotal%0A1%2C42">Export orders</a></p>
 <label>Avatar <input type="file" id="avatar"></label>
 <script>
+  const session = localStorage.getItem('session');
+  if (session) document.querySelector('#account').textContent = `Signed in as ${session}`;
   for (const button of document.querySelectorAll('.product button')) {
     button.onclick = () => {
       const count = document.querySelector('#cart-count');
@@ -64,7 +68,9 @@ const LOGIN: &str = r#"<!doctype html>
   document.querySelector('#login').onsubmit = (event) => {
     event.preventDefault();
     const form = event.target;
-    document.querySelector('#message').textContent = form.password.value === 'secret'
+    const ok = form.password.value === 'secret';
+    if (ok) localStorage.setItem('session', form.email.value);
+    document.querySelector('#message').textContent = ok
       ? `Welcome, ${form.email.value}`
       : 'Wrong password';
   };
@@ -450,6 +456,37 @@ async fn two_pages_share_a_context(context: BrowserContext, page: Page) -> agito
     Ok(())
 }
 // ANCHOR_END: fixtures
+
+#[agito::test]
+async fn signing_in_once(browser: Browser, page: Page) -> agito::Result<()> {
+    // ANCHOR: storage_state
+    // Sign in once...
+    page.goto("https://shop.test/login").await?;
+    page.get_by_label("Email").fill("ada@example.com").await?;
+    page.get_by_label("Password").fill("secret").await?;
+    page.get_by_role("button", Some("Sign in")).click().await?;
+    expect(&page.get_by_role("status", None))
+        .to_have_text("Welcome, ada@example.com")
+        .await?;
+    let file = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("signed-in.json");
+    page.context().storage_state().await?.save(&file)?;
+
+    // ...then start other contexts from where it left off.
+    let state = StorageState::load(&file)?;
+    let context = browser
+        .new_context(ContextOptions {
+            storage_state: Some(state),
+            ..Default::default()
+        })
+        .await?;
+    let shop = context.new_page().await?;
+    shop.goto("https://shop.test/").await?;
+    expect(&shop.locator("#account"))
+        .to_have_text("Signed in as ada@example.com")
+        .await?;
+    // ANCHOR_END: storage_state
+    context.close().await
+}
 
 // ANCHOR: retries
 // Re-run up to twice if the browser is lost; a failed assertion is never re-run.

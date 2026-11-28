@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Breaking changes
+- `ContextOptions` has a new field, `storage_state`. Code that builds `ContextOptions` with
+  `..ContextOptions::default()`, as the docs do, is unaffected.
+
+### Added
+- Storage state, to start contexts already signed in. `context.storage_state()` reads a
+  context's cookies (with their `SameSite` policy) and the local storage of each page's
+  origin; `StorageState::save` and `load` keep it as JSON in Playwright's `storageState`
+  format. `ContextOptions::storage_state` starts a context from it, and
+  `context.set_storage_state` applies one to an existing context. Local storage is written by
+  a temporary page that visits each origin through a route, so nothing goes to the network.
+
 ### Fixed
 - `fill` and `clear` work on `contenteditable` elements. They passed the editable check but
   set a `value` such elements do not have, so the element did not change. They now select

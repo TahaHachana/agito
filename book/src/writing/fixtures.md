@@ -43,6 +43,7 @@ what the test needs:
 | `proxy_server` | none | A proxy for the context's requests, such as `http://proxy:3128` |
 | `action_timeout` | 30s | The default timeout for [actions](actions.md#timeouts) |
 | `navigation_timeout` | 30s | The default timeout for navigations |
+| `storage_state` | none | Cookies and local storage to start with: see [Signing in once](#signing-in-once) |
 
 Outside tests, the same options go to `browser.new_context(options)` or
 `browser.new_page(options)`.
@@ -64,3 +65,59 @@ context.add_init_script("window.__TEST__ = true;").await?;
 
 Setting cookies in a test, or in a helper the tests share, is the quickest way to start a
 test already signed in.
+
+## Signing in once
+
+Signing in through the user interface in every test is slow, and makes every test depend on
+the sign-in page. Instead, sign in once, save the context's **storage state** (its cookies and
+local storage), and start other contexts from it:
+
+```rust,ignore
+{{#include ../../../samples/agito-samples/tests/book.rs:storage_state}}
+```
+
+`context.storage_state()` reads every cookie in the context, and the local storage of the
+origin each of its pages is on. `save` and `StorageState::load` write and read it as JSON in
+Playwright's `storageState` format, so state files work across tools. A context starts from
+one through `ContextOptions::storage_state`, or takes one later with
+`context.set_storage_state(&state)`.
+
+To start a whole suite signed in, load the state in a [context options](#context-options)
+function:
+
+```rust,ignore
+use agito::storage::StorageState;
+use agito::ContextOptions;
+
+fn signed_in() -> ContextOptions {
+    let state = StorageState::load("target/agito/signed-in.json")
+        .expect("run the sign-in step first: cargo test --test sign_in");
+    ContextOptions {
+        storage_state: Some(state),
+        ..ContextOptions::default()
+    }
+}
+
+#[agito::test(context = signed_in)]
+async fn orders_show_the_last_purchase(page: Page) -> agito::Result<()> {
+    page.goto("https://shop.test/orders").await?;
+    // ...
+    Ok(())
+}
+```
+
+and produce the file in a step that runs before the tests, such as a test binary of its own
+(`tests/sign_in.rs`) that signs in and saves the state, run with `cargo test --test sign_in`
+ahead of the rest.
+
+Some things to know:
+
+- **A state file holds live credentials.** Keep it out of version control, in `target/` or
+  another ignored directory.
+- **Local storage needs a page to write it.** Starting from a state with local storage briefly
+  opens one page in the new context, which visits each origin through a route that answers
+  with an empty document (nothing goes to the network). Lifecycle hooks see that page.
+- **A cross-site iframe's storage is not saved.** Chrome partitions it by the site embedding
+  it, so it is not the storage that origin has on its own, and cannot be set again the same
+  way. Cookies are saved whoever set them.
+- **Session storage is not saved,** as it belongs to a single tab.
