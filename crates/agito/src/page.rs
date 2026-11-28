@@ -13,7 +13,7 @@ use regex::Regex;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use crate::context::{BrowserContext, Viewport};
@@ -407,6 +407,9 @@ pub(crate) struct PageInner {
     keyboard: Keyboard,
     closed: AtomicBool,
     pumps: Mutex<Vec<JoinHandle<()>>>,
+    /// One per pump: a request to be told once the pump has applied every event received so
+    /// far. See [`Page::sync_events`].
+    barriers: Mutex<Vec<mpsc::UnboundedSender<oneshot::Sender<()>>>>,
 }
 
 impl PageInner {
@@ -547,6 +550,7 @@ impl Page {
             keyboard: Keyboard::new(session.clone()),
             closed: AtomicBool::new(false),
             pumps: Mutex::new(Vec::new()),
+            barriers: Mutex::new(Vec::new()),
         });
         let page = Page { inner };
         page.start_pump(session.clone(), None);
@@ -690,13 +694,16 @@ impl Page {
     fn start_pump(&self, session: Arc<dyn Session>, child_session_id: Option<String>) {
         // Subscribe before enabling domains so nothing they announce is missed.
         let stream = session.subscribe(PAGE_EVENTS);
+        let (barrier, barriers) = mpsc::unbounded_channel();
         let pump = tokio::spawn(event_pump(
             Arc::downgrade(&self.inner),
             session,
             child_session_id,
             stream,
+            barriers,
         ));
         self.inner.pumps.lock().unwrap().push(pump);
+        self.inner.barriers.lock().unwrap().push(barrier);
     }
 
     /// The context this page belongs to.
@@ -1647,6 +1654,27 @@ impl Page {
         self.locator(&format!("backend-node-id={backend_node_id}"))
     }
 
+    /// Waits until the page has applied every event the browser sent before now.
+    ///
+    /// Answers to commands are handed back as they arrive, but events go through each pump's
+    /// queue, so a command's caller can run ahead of events the browser sent first: a script
+    /// that adds an iframe returns before the page has heard the frame's name. Each pump
+    /// prefers its events to barrier requests, and every earlier event is already queued, so
+    /// a pump answering has applied them all. The wait involves no browser round trip; a pump
+    /// slow to answer is not waited for beyond a second.
+    pub(crate) async fn sync_events(&self) {
+        let senders = self.inner.barriers.lock().unwrap().clone();
+        let answers: Vec<_> = senders
+            .iter()
+            .filter_map(|barrier| {
+                let (tx, rx) = oneshot::channel();
+                barrier.send(tx).ok().map(|()| rx)
+            })
+            .collect();
+        let _ =
+            tokio::time::timeout(Duration::from_secs(1), futures::future::join_all(answers)).await;
+    }
+
     pub(crate) async fn fire_hooks_before_navigation(&self, url: &str) {
         for hook in &self.inner.context.inner.hooks {
             if let Err(e) = hook.before_navigation(self, url).await {
@@ -1815,8 +1843,19 @@ async fn event_pump(
     session: Arc<dyn Session>,
     child: Option<String>,
     mut stream: crate::transport::EventStream,
+    mut barriers: mpsc::UnboundedReceiver<oneshot::Sender<()>>,
 ) {
-    while let Some(event) = stream.next().await {
+    loop {
+        // Events first: a barrier is answered only once none is waiting.
+        let event = tokio::select! {
+            biased;
+            event = stream.next() => event,
+            Some(barrier) = barriers.recv() => {
+                let _ = barrier.send(());
+                continue;
+            }
+        };
+        let Some(event) = event else { break };
         let Some(inner) = page.upgrade() else { return };
         let params = event.params;
         match event.method.as_str() {

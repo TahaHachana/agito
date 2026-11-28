@@ -62,6 +62,11 @@
 - `fill` and `clear` work on `contenteditable` elements. They passed the editable check but
   set a `value` such elements do not have, so the element did not change. They now select
   the element's contents and replace them as if typed, so the page sees its input events.
+- `page.frame(name)`, `page.frames()` and other frame lookups no longer miss a frame that a
+  script or an action has just added or renamed. Answers to commands could be handed back
+  before the page had applied events the browser sent earlier, such as a new frame's name, so
+  a lookup right after `evaluate` sometimes found nothing. `evaluate` and locator actions now
+  return once those events are applied.
 
 ### Deprecated
 - `ErrorKind::AmbiguousSelector`. It was never raised: an action acts on the first element

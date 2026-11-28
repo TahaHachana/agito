@@ -632,6 +632,8 @@ impl Locator {
             }
         }
         let result = action.await;
+        // An action's handlers may add or rename frames; let the page hear of it first.
+        self.page.sync_events().await;
         let summary = ActionResult {
             action: name.to_owned(),
             error: result.as_ref().err().map(|e| e.to_string()),
