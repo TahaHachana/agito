@@ -19,6 +19,11 @@
   (`console_messages`, `network_requests`, `network_request`), prints frames inside page
   snapshots with frame-prefixed refs (`frame_list`, `frame_select`), and audits pages
   (`audit_accessibility`).
+- `agito mcp --caps` adds optional tool groups: `coordinates` (`click_xy`, `hover_xy`,
+  `move_xy`, `scroll_xy`, `drag`, `resize`), `contexts` (`context_list`, `context_create`,
+  `context_select`, `context_close`) and `routing` (`route_fulfill`, `route_abort`,
+  `route_continue`, `unroute`, `route_list`). `AGITO_MCP_CAPS` sets them too. The MCP
+  `evaluate` tool also takes statements.
 - `Frame::owner_backend_node_id`, the backend node id of the element holding a frame.
 - `Page::locator_by_backend_node_id` and `Frame::locator_by_backend_node_id`, and the
   `backend-node-id=` selector, for the element an accessibility node names.

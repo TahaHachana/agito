@@ -90,18 +90,21 @@ pub(crate) struct Report {
     frames_moved_before: Vec<usize>,
     scope_moved_before: bool,
     tabs_before: HashSet<String>,
+    context: String,
     settle: Duration,
 }
 
 impl Report {
     pub async fn begin(session: &Arc<Mutex<Session>>, tab: &Tab, settle: Duration) -> Report {
-        let tabs_before = session
-            .lock()
-            .await
-            .tabs()
-            .into_iter()
-            .map(|(_, t)| t.page.target_id().to_owned())
-            .collect();
+        let (tabs_before, context) = {
+            let session = session.lock().await;
+            let tabs = session
+                .tabs()
+                .into_iter()
+                .map(|(_, t)| t.page.target_id().to_owned())
+                .collect();
+            (tabs, session.active_context_name().to_owned())
+        };
         let snapshot = tab.state.snapshot.lock().await;
         Report {
             url: tab.page.url(),
@@ -111,6 +114,7 @@ impl Report {
             frames_moved_before: snapshot.moved_frames(),
             scope_moved_before: snapshot.scope_moved(),
             tabs_before,
+            context,
             settle,
         }
     }
@@ -140,8 +144,12 @@ impl Report {
         if (moved || title != self.title) && !already_said {
             rows.push(format!("Page: {}", describe_as(&url, title.as_deref())));
         }
-        for (index, url) in new_tabs {
-            rows.push(format!("New tab opened: [{index}] {url}"));
+        for (index, url, context) in new_tabs {
+            let mut row = format!("New tab opened: [{index}] {url}");
+            if context != self.context {
+                row.push_str(&format!(" in context '{context}'"));
+            }
+            rows.push(row);
         }
         if let Some(console) = self.console_row(tab) {
             rows.push(console);
@@ -191,17 +199,21 @@ impl Report {
     /// Tabs opened since the action began, by index: waited for up to the settle time, since
     /// a page opens a tab a moment after the click that asked for it, then given a moment to
     /// leave `about:blank` for the address they were opened at.
-    async fn new_tabs(&self, session: &Arc<Mutex<Session>>, blocked: bool) -> Vec<(usize, String)> {
+    async fn new_tabs(
+        &self,
+        session: &Arc<Mutex<Session>>,
+        blocked: bool,
+    ) -> Vec<(usize, String, String)> {
         let started = Instant::now();
         let opened = loop {
-            let opened: Vec<(usize, Tab)> = session
+            let opened: Vec<(usize, Tab, String)> = session
                 .lock()
                 .await
                 .tabs()
                 .into_iter()
                 .enumerate()
                 .filter(|(_, (_, t))| !self.tabs_before.contains(t.page.target_id()))
-                .map(|(i, (_, t))| (i, t))
+                .map(|(i, (c, t))| (i, t, c))
                 .collect();
             if !opened.is_empty() || blocked || started.elapsed() >= self.settle {
                 break opened;
@@ -211,12 +223,15 @@ impl Report {
         let blank = |url: &str| url.is_empty() || url == "about:blank";
         let waited = Instant::now();
         while !blocked
-            && opened.iter().any(|(_, t)| blank(&t.page.url()))
+            && opened.iter().any(|(_, t, _)| blank(&t.page.url()))
             && waited.elapsed() < NEW_TAB_URL_WAIT
         {
             tokio::time::sleep(POLL).await;
         }
-        opened.into_iter().map(|(i, t)| (i, t.page.url())).collect()
+        opened
+            .into_iter()
+            .map(|(i, t, c)| (i, t.page.url(), c))
+            .collect()
     }
 
     fn console_row(&self, tab: &Tab) -> Option<String> {

@@ -17,8 +17,14 @@ struct Client {
 
 impl Client {
     fn launch() -> Client {
+        Client::launch_with(&[])
+    }
+
+    fn launch_with(args: &[&str]) -> Client {
         let mut child = Command::new(env!("CARGO_BIN_EXE_agito"))
             .arg("mcp")
+            .args(args)
+            .env_remove("AGITO_MCP_CAPS")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -97,4 +103,36 @@ fn a_client_drives_a_page_through_agito_mcp() {
     // The server closes its browser on the way out.
     let status = client.finish();
     assert!(status.success(), "{status}");
+}
+
+#[test]
+fn caps_add_tool_groups_and_unknown_ones_are_refused() {
+    let mut client = Client::launch_with(&["--caps", "coordinates", "--caps=routing"]);
+    client.request(
+        "initialize",
+        json!({
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": { "name": "test", "version": "1.0" }
+        }),
+    );
+    client.send(json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }));
+    let tools = client.request("tools/list", json!({}));
+    assert_eq!(
+        tools["tools"].as_array().unwrap().len(),
+        31 + 6 + 5,
+        "{tools}"
+    );
+    assert!(client.finish().success());
+
+    let refused = Command::new(env!("CARGO_BIN_EXE_agito"))
+        .args(["mcp", "--caps", "coordinates,recording"])
+        .output()
+        .unwrap();
+    assert!(!refused.status.success());
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        stderr.contains("--caps: the recording group is not available yet"),
+        "{stderr}"
+    );
 }

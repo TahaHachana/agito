@@ -76,6 +76,26 @@ printf '%s\n' \
 A tool that fails returns an error result whose message says what to do next, such as taking a
 fresh snapshot, rather than a protocol error.
 
+### Added on request
+
+Every tool a server lists is described to the client at the start of every conversation,
+whether it is called or not. So the groups a session either leans on throughout or never
+touches are left out until `--caps` names them:
+
+| Group | `--caps` | Tools |
+|---|---|---|
+| Coordinate input | `coordinates` | `click_xy`, `hover_xy`, `move_xy`, `scroll_xy`, `drag`, `resize` |
+| Isolated contexts | `contexts` | `context_list`, `context_create`, `context_select`, `context_close` |
+| Request mocking | `routing` | `route_fulfill`, `route_abort`, `route_continue`, `unroute`, `route_list` |
+
+```console
+claude mcp add agito -- agito mcp --caps coordinates,contexts,routing
+```
+
+Separate groups with commas or repeat the flag; `AGITO_MCP_CAPS` takes the same list, and the
+flag outranks it. Naming a group only ever adds tools. A recording group (traces, HAR and
+video) will follow once agito records traces and video.
+
 ### Snapshots and refs
 
 `snapshot` prints one line per node, indented to show nesting: the role, the accessible name in
@@ -157,7 +177,8 @@ snapshot no longer holds is reported as stale, not run as a selector that matche
 - **`type`** sets the value in one step. `slowly: true` types key by key, for fields that
   react to each keystroke, and `submit: true` presses Enter afterwards.
 - **`evaluate`** returns the value under a `result` key, whatever its shape; values with no
-  JSON form, such as `undefined` or a DOM node, come back as `null`. With a `ref`, the
+  JSON form, such as `undefined` or a DOM node, come back as `null`. Without a `ref` it also
+  takes statements (`const n = 2; n * 3`), returning the last one's value. With a `ref`, the
   expression must be a function, and receives the element as its argument and as `this`:
   `el => el.scrollHeight`.
 - **`wait_for`** takes one of `time` (milliseconds), `text` or `text_gone`.
@@ -228,6 +249,58 @@ frame, and a `ref` when the element took one, so an agent can act on it directly
 fresh snapshot to do so, which replaces the refs in hand. `min_severity` (`error`, `warning` or
 `info`) leaves out the less severe.
 
+### Coordinate input
+
+Some applications draw their interface on a `<canvas>`, so the accessibility tree has nothing
+to address. A snapshot that finds nothing says so, and with `--caps coordinates` the way
+forward is perception by screenshot:
+
+1. `screenshot` the page and find the control.
+2. Act on its position with `click_xy`, `hover_xy`, `scroll_xy` or `drag`. Coordinates are CSS
+   pixels in the viewport, the space screenshots and `getBoundingClientRect()` use.
+3. If a target sits beyond the viewport's edge, `resize` it first (1280x800 by default).
+
+The input is trusted browser input, as for the ref-based tools, and the browser's own hit
+test picks the target. `drag` takes either elements (`start_ref` and `end_ref`, each scrolled
+into view first) or points (`start_x`, `start_y`, `end_x`, `end_y`), and always moves through
+intermediate points (`steps`, 10 by default), with `hold_ms` for libraries that wait before
+starting a drag.
+
+### Isolated contexts
+
+A context has its own cookies and storage, so two contexts are two users. A session that
+never names one uses `default`, created on first use. `context_create` makes a context and
+switches to it, refusing a name already open; `context_select` switches; `context_close` closes
+a context and its tabs, and `default` becomes active if it was the one closed.
+
+`tab_list` numbers every tab across contexts, naming each tab's context once there is more
+than one, and `tab_select` switches to a tab's context. `tab_open` opens in the active one.
+
+### Request mocking
+
+A mock answers a request before it reaches the network, which reaches states the server will
+not produce on demand: an error, an empty list, a slow dependency.
+
+- `route_fulfill` answers with `status` (200), `body`, `content_type` and `headers`.
+- `route_abort` fails the request, with an `error_code` such as `connectionrefused` or
+  `timedout`.
+- `route_continue` sends it on with the `url`, `method`, `headers` or `post_data` replaced.
+- `unroute` removes a pattern's rule, and `route_list` lists them as `pattern -> action`.
+
+A pattern matches a URL it equals; with a `*`, as a glob over the whole URL, each `*` any run of
+characters; otherwise, as a substring. So `*/api/status.json` and `/api/` both match
+`https://shop.test/api/status.json`. Rules belong to the active context: they cover all its
+tabs, and survive navigation. When several match, the one registered most recently answers,
+and re-registering a pattern replaces its rule without moving it.
+
+```text
+route_fulfill(url_pattern: "*/api/status.json", body: "{\"overall\": \"degraded\"}")
+  -> Mocking '*/api/status.json' with status 200.
+```
+
+A redirect to a `file:` URL, and a `route_continue` to one, are refused unless the server
+allows file access.
+
 ### One call at a time
 
 The server runs tool calls one at a time, so two calls never act on the page at once. A client
@@ -249,6 +322,7 @@ order sent; to chain actions, wait for each result before sending the next, as a
 | `--navigation-timeout MS` | the context's navigation timeout | How long a navigation waits |
 | `--settle MS` | `500` | How long an action waits for the page to show what it did |
 | `--dialogs` | `ask` | `ask` leaves a dialog for `handle_dialog`; `accept` or `dismiss` answers it at once |
+| `--caps GROUPS` | none | Optional tool groups: `coordinates`, `contexts`, `routing`. Also `AGITO_MCP_CAPS` |
 | `--allow-unrestricted-file-access` | off | Let tools open `file://` URLs |
 
 Options left out fall back to [`agito.config.json`](reference/configuration.md) and `AGITO_*`
