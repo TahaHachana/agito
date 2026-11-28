@@ -34,6 +34,7 @@
 # Beyond tests
 
 - [Scripting a browser](scripting.md)
+- [Driving a browser from an AI agent](mcp.md)
 - [Writing a plugin](extending.md)
 
 # Reference

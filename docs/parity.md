@@ -15,7 +15,7 @@ run real browser tests.
 | 6 | Accessibility, performance, coverage, tracing, video | In progress: accessibility done |
 | 7 | CLI (`agito`) | Done; `run` settings in `agito.config.json` left |
 | 8 | Recorder, codegen, check-selectors | Not started |
-| 9 | MCP server | Not started |
+| 9 | MCP server | In progress: the stdio server, snapshots and core tools; reports, dialogs, logs and frames next |
 | 10 | Visual runner | Not started |
 
 ## Ported
@@ -51,6 +51,8 @@ run real browser tests.
 | `motus run` (`TestRunner`, `TestDiscovery`, `ShardSelector`, console, JUnit and HTML reporters, `FlakeHistoryReporter`), `[Quarantine]` | `agito run` (`crates/agito-cli/src/run`), `#[agito::test(quarantine = "reason")]`, `harness::TestRecord` |
 | `motus shard merge` (`ShardMerger`) | `agito shard merge` |
 | `AccessibilityAuditHook`, `AccessibilityOptions`, `motus run --a11y` | `accessibility::hook`, `AccessibilityOptions` (`ContextOptions::accessibility`), `agito run --a11y` |
+| `Motus.Mcp`: `motus mcp`, `SnapshotSerializer`, `PageSnapshotService`, `BrowserSessionManager` and the core tools | `agito-mcp`: `agito mcp`, `snapshot`, `session` and `tools` (increment A of phase 9) |
+| `Frame.LocatorByBackendNodeId`, `BackendNodeIdSelectorStrategy` | `Frame::locator_by_backend_node_id`, `backend-node-id=` |
 | `AccessibilityTreeQuery`, `AccessibilitySnapshotAsync`, the collectors, `ContrastCalculator`, `AccessibilityRuleEngine`, the nine rules, `RunAccessibilityAuditAsync`, `ToPassAccessibilityAuditAsync`, `IAccessibilityRule` | `agito::accessibility`: `page.accessibility_snapshot`, `page.audit_accessibility`, `to_pass_accessibility_audit`, `AccessibilityRule` |
 | `IBrowserContext.StorageStateAsync`, `ContextOptions.StorageState` | `BrowserContext::storage_state`, `set_storage_state`, `ContextOptions::storage_state`, `agito::storage` |
 | `ProtocolLog`, `ProtocolLogOptions`, `ProtocolLogFormatter`, `MOTUS_PROTOCOL_LOG` | `transport::log`, `ProtocolLogOptions`, `AGITO_PROTOCOL_LOG` |
@@ -201,6 +203,15 @@ run real browser tests.
   Motus removed every element whose class or id held one of those words (or `cc-`), which
   took out footer links, articles, and the whole page when `<body>` matched. It also cleared
   scroll locks even when it removed nothing.
+
+- MCP server:
+  - Tool calls run one at a time. Motus gated only finding the active page, assuming the
+    protocol delivers calls one at a time; it does not, and the server runs a client's
+    concurrent calls together, so a click could reach the page before the snapshot that
+    named its ref.
+  - The session holds its tabs itself, since an agito context holds pages weakly.
+  - `agito mcp` drives Chromium-based browsers only; Motus also launched Firefox, where
+    snapshots were unavailable.
 
 ## Inherited as-is
 

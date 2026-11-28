@@ -1641,6 +1641,12 @@ impl Page {
         Locator::new(self.clone(), selector)
     }
 
+    /// A locator for the element the browser knows by `backend_node_id` in the main frame, as
+    /// [`AxNode::backend_node_id`](crate::accessibility::AxNode) gives it.
+    pub fn locator_by_backend_node_id(&self, backend_node_id: i64) -> Locator {
+        self.locator(&format!("backend-node-id={backend_node_id}"))
+    }
+
     pub(crate) async fn fire_hooks_before_navigation(&self, url: &str) {
         for hook in &self.inner.context.inner.hooks {
             if let Err(e) = hook.before_navigation(self, url).await {

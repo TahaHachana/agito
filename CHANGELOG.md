@@ -8,6 +8,13 @@
   `..Default::default()`, as the docs do, is unaffected.
 
 ### Added
+- `agito mcp`, a Model Context Protocol server (the new `agito-mcp` crate) that lets AI agents
+  drive a browser: navigation, accessibility snapshots with refs that the interaction tools
+  take, clicks, typing, keys, selects, checkboxes, waits, `evaluate`, screenshots and tabs. It
+  starts its browser on first use and starts another if it crashes. `file://` URLs are
+  blocked unless `--allow-unrestricted-file-access` is passed.
+- `Page::locator_by_backend_node_id` and `Frame::locator_by_backend_node_id`, and the
+  `backend-node-id=` selector, for the element an accessibility node names.
 - Automatic accessibility audits. With `accessibility.mode` set to `warn` or `enforce` in
   `agito.config.json` (or `AGITO_ACCESSIBILITY_MODE`, or `ContextOptions::accessibility`),
   each context audits after every navigation, and optionally after actions that change a

@@ -104,8 +104,17 @@ Saves a page as a PDF. It takes the same `URL`, `--wait-until`, `--timeout`, `--
 | `--landscape` | | Print in landscape |
 | `--background` | | Print background colours and images, which browsers leave out of print by default |
 
+## agito mcp
+
+Serves a [Model Context Protocol](../mcp.md) server over stdio, so AI agents can drive a
+browser. Its options are listed in [Driving a browser from an AI agent](../mcp.md#options).
+
+```console
+claude mcp add agito -- agito mcp
+```
+
 ## Browser selection
 
-`agito screenshot` and `agito pdf` launch a browser the way tests do: from
+`agito screenshot`, `agito pdf` and `agito mcp` launch a browser the way tests do: from
 [`agito.config.json`](configuration.md) and `AGITO_*` variables, then the browser `agito
 install` installed, then Chrome, Edge or Chromium.

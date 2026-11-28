@@ -514,6 +514,47 @@ pub fn css_string(value: &str) -> String {
     out
 }
 
+/// `backend-node-id=N`: the element the browser knows by backend node id `N`, as an
+/// accessibility snapshot names it. Matches nothing once that element is gone.
+pub struct BackendNodeIdStrategy;
+
+#[async_trait]
+impl SelectorStrategy for BackendNodeIdStrategy {
+    fn name(&self) -> &str {
+        "backend-node-id"
+    }
+    async fn resolve(
+        &self,
+        selector: &str,
+        frame: &Frame,
+        _pierce: bool,
+    ) -> Result<Vec<ElementHandle>> {
+        let id: i64 = selector.trim().parse().map_err(|_| {
+            crate::error::Error::invalid_argument(format!(
+                "backend-node-id= takes a number, not '{selector}'"
+            ))
+        })?;
+        let session = frame.session();
+        // A node that is gone, or was never in this document's process, does not resolve:
+        // that is no match, not an error.
+        let Ok(resolved) = session
+            .send(&dom::ResolveNodeParams {
+                backend_node_id: Some(id),
+                ..Default::default()
+            })
+            .await
+        else {
+            return Ok(Vec::new());
+        };
+        Ok(resolved
+            .object
+            .object_id
+            .map(|object_id| ElementHandle::new(session.clone(), object_id))
+            .into_iter()
+            .collect())
+    }
+}
+
 /// Registers the built-in strategies.
 pub(crate) fn register_builtins(registry: &SelectorRegistry) {
     registry.register(Arc::new(CssStrategy));
@@ -524,6 +565,7 @@ pub(crate) fn register_builtins(registry: &SelectorRegistry) {
     registry.register(Arc::new(GetByStrategy::text()));
     registry.register(Arc::new(GetByStrategy::label()));
     registry.register(Arc::new(GetByStrategy::attribute()));
+    registry.register(Arc::new(BackendNodeIdStrategy));
 }
 
 #[cfg(test)]

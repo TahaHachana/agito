@@ -21,6 +21,7 @@ integration = []
 
 [dependencies]
 agito = { workspace = true }
+agito-mcp = { workspace = true }
 anyhow = "1.0.105"
 base64 = "0.23"
 clap = { version = "4.6.10", features = ["derive"] }

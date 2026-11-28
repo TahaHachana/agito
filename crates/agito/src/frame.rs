@@ -462,6 +462,12 @@ impl Frame {
         Locator::in_frame(self.page.clone(), self.id.clone(), selector)
     }
 
+    /// A locator for the element the browser knows by `backend_node_id` in this frame's
+    /// document, as [`AxNode::backend_node_id`](crate::accessibility::AxNode) gives it.
+    pub fn locator_by_backend_node_id(&self, backend_node_id: i64) -> Locator {
+        self.locator(&format!("backend-node-id={backend_node_id}"))
+    }
+
     /// Locates elements inside an iframe within this frame.
     pub fn frame_locator(&self, selector: &str) -> FrameLocator {
         FrameLocator::new(self.locator(selector))
