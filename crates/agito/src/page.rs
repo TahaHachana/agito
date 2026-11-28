@@ -1149,6 +1149,9 @@ impl Page {
             })
             .await;
         self.inner.mark_closed();
+        if let Some(recorder) = self.inner.context.recorder() {
+            recorder.page_closed(self);
+        }
         for hook in &self.inner.context.inner.hooks {
             if let Err(e) = hook.on_page_closed(self).await {
                 tracing::warn!(error = %e, "lifecycle hook on_page_closed failed");
@@ -1676,6 +1679,9 @@ impl Page {
     }
 
     pub(crate) async fn fire_hooks_before_navigation(&self, url: &str) {
+        if let Some(recorder) = self.inner.context.recorder() {
+            recorder.started(self);
+        }
         for hook in &self.inner.context.inner.hooks {
             if let Err(e) = hook.before_navigation(self, url).await {
                 tracing::warn!(error = %e, "lifecycle hook before_navigation failed");
@@ -1688,6 +1694,9 @@ impl Page {
             if let Err(e) = hook.after_navigation(self, response).await {
                 tracing::warn!(error = %e, "lifecycle hook after_navigation failed");
             }
+        }
+        if let Some(recorder) = self.inner.context.recorder() {
+            recorder.navigated(self, &self.url(), response).await;
         }
     }
 }
@@ -2133,6 +2142,13 @@ async fn event_pump(
                         .map(|a| a.value.clone().unwrap_or(Value::Null))
                         .collect(),
                 };
+                if let Some(recorder) = inner.context.recorder() {
+                    recorder.console(
+                        &Page::from_inner(inner.clone()),
+                        &message.kind,
+                        &message.text,
+                    );
+                }
                 let handlers = inner.console_handlers.lock().unwrap().clone();
                 for handler in handlers {
                     handler(&message);
@@ -2147,6 +2163,9 @@ async fn event_pump(
                     .exception
                     .and_then(|x| x.description)
                     .unwrap_or(details.text);
+                if let Some(recorder) = inner.context.recorder() {
+                    recorder.page_error(&Page::from_inner(inner.clone()), &text);
+                }
                 let handlers = inner.error_handlers.lock().unwrap().clone();
                 for handler in handlers {
                     handler(&text);
@@ -2159,6 +2178,13 @@ async fn event_pump(
                     message: params["message"].as_str().unwrap_or_default().to_owned(),
                     default_prompt: params["defaultPrompt"].as_str().map(str::to_owned),
                 };
+                if let Some(recorder) = inner.context.recorder() {
+                    recorder.dialog(
+                        &Page::from_inner(inner.clone()),
+                        &dialog.kind,
+                        &dialog.message,
+                    );
+                }
                 let handlers = inner.dialog_handlers.lock().unwrap().clone();
                 if handlers.is_empty() {
                     tokio::spawn(async move {

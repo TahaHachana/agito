@@ -50,6 +50,7 @@ reports it as quarantined rather than passed. See [Flaky tests](../writing/flaky
 ## What `agito run` reads
 
 When `AGITO_RESULTS_DIR` is set, the harness writes a small JSON record for each test:
-whether it passed, its duration, attempts, error message, failure screenshot and quarantine.
+whether it passed, its duration, attempts, error message, failure screenshot and trace, and
+quarantine.
 `agito run` sets it and reads the records back for its reports. Under plain `cargo test`
 nothing is written.

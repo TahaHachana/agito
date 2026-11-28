@@ -29,6 +29,9 @@ pub struct TestRecord {
     pub quarantine: Option<String>,
     /// The screenshot saved when the test failed.
     pub screenshot: Option<PathBuf>,
+    /// The trace saved when the test failed.
+    #[serde(default)]
+    pub trace: Option<PathBuf>,
     /// What automatic accessibility audits found during the test.
     #[serde(default)]
     pub accessibility: Vec<crate::accessibility::Violation>,
@@ -89,6 +92,7 @@ mod tests {
             browser_lost: false,
             quarantine: None,
             screenshot: None,
+            trace: None,
             accessibility: Vec::new(),
         };
         assert_eq!(record("popups::closes").libtest_name(), "closes");

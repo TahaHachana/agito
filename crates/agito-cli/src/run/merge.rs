@@ -245,7 +245,7 @@ struct Case {
     failure: Option<(String, String)>,
     skipped: bool,
     flaky: bool,
-    attachment: Option<String>,
+    attachments: Vec<PathBuf>,
 }
 
 impl Case {
@@ -285,11 +285,16 @@ impl Case {
                 .get(reports::ACCESSIBILITY)
                 .and_then(|json| serde_json::from_str(json).ok())
                 .unwrap_or_default(),
-            screenshot: self.attachment.and_then(|a| {
-                Some(PathBuf::from(
-                    a.strip_prefix("[[ATTACHMENT|")?.strip_suffix("]]")?,
-                ))
-            }),
+            screenshot: self
+                .attachments
+                .iter()
+                .find(|a| !a.to_string_lossy().ends_with(".zip"))
+                .cloned(),
+            trace: self
+                .attachments
+                .iter()
+                .find(|a| a.to_string_lossy().ends_with(".zip"))
+                .cloned(),
         }
     }
 }
@@ -391,9 +396,10 @@ fn parse(text: &str) -> Result<Parsed> {
                     }
                     ("system-err", Some(c)) => {
                         let text = std::mem::take(&mut text_buffer);
-                        if text.starts_with("[[ATTACHMENT|") {
-                            c.attachment = Some(text.trim().to_owned());
-                        }
+                        c.attachments.extend(text.lines().filter_map(|line| {
+                            let path = line.trim().strip_prefix("[[ATTACHMENT|")?;
+                            Some(PathBuf::from(path.strip_suffix("]]")?))
+                        }));
                     }
                     ("testcase", _) => {
                         if let Some(c) = case.take() {
@@ -452,6 +458,7 @@ mod tests {
             message: None,
             output: None,
             screenshot: None,
+            trace: None,
             accessibility: Vec::new(),
         }
     }
@@ -471,6 +478,7 @@ mod tests {
         failed.message = Some("expected \"Paid\"\n  got: none".into());
         failed.output = Some("thread panicked\nexpected \"Paid\" & got <none>\n".into());
         failed.screenshot = Some(PathBuf::from("/tmp/shots/checkout.png"));
+        failed.trace = Some(PathBuf::from("/tmp/shots/checkout.trace.zip"));
         failed.duration = Some(Duration::from_millis(1250));
         let mut flaky = outcome("pkg", "tests::flaky", Status::Passed);
         flaky.flaky = true;
@@ -513,7 +521,8 @@ mod tests {
                     r.attempts,
                     &r.quarantine,
                     r.duration,
-                    &r.screenshot
+                    &r.screenshot,
+                    &r.trace
                 ),
                 (
                     w.status,
@@ -521,7 +530,8 @@ mod tests {
                     w.attempts,
                     &w.quarantine,
                     w.duration,
-                    &w.screenshot
+                    &w.screenshot,
+                    &w.trace
                 ),
                 "{}",
                 w.full_name

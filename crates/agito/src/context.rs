@@ -226,6 +226,8 @@ pub(crate) struct ContextInner {
     /// For an adopted context, the tabs that were open when it was adopted: nothing else
     /// asked for them, and pages live only while something holds them.
     held: Mutex<Vec<Page>>,
+    /// The trace being recorded, if any.
+    pub(crate) tracer: Mutex<Option<Arc<crate::tracing_recorder::Recorder>>>,
     page_events: broadcast::Sender<Page>,
     page_handlers: Mutex<Vec<PageHandler>>,
     /// Where this context's downloads land, named by download id; removed with the context.
@@ -305,6 +307,7 @@ impl BrowserContext {
             creating: tokio::sync::Mutex::new(()),
             claims: Mutex::new(HashMap::new()),
             held: Mutex::new(Vec::new()),
+            tracer: Mutex::new(None),
             page_events: broadcast::channel(64).0,
             page_handlers: Mutex::new(Vec::new()),
             download_dir,
@@ -439,6 +442,9 @@ impl BrowserContext {
             if let Err(e) = hook.on_page_created(&page).await {
                 tracing::warn!(error = %e, "lifecycle hook on_page_created failed");
             }
+        }
+        if let Some(recorder) = self.recorder() {
+            recorder.page_opened(&page);
         }
         let handlers = self.inner.page_handlers.lock().unwrap().clone();
         for handler in handlers {
@@ -791,6 +797,8 @@ impl BrowserContext {
             page.inner.mark_closed();
         }
         self.inner.held.lock().unwrap().clear();
+        // A trace never stopped would hold the context's pages, and so the context, forever.
+        self.inner.tracer.lock().unwrap().take();
         // The browser's own context is somebody's working state: let go of it, and leave its
         // windows open.
         let result = if self.inner.adopted || self.inner.browser.inner.connection.is_closed() {

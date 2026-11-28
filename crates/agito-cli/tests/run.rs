@@ -22,6 +22,11 @@ fn scratch(name: &str) -> PathBuf {
 
 /// `agito run <args>` on the fixture, with `state` for the flaky test's marker.
 fn run(state: &Path, args: &[&str]) -> (Output, String) {
+    run_with_env(state, args, &[])
+}
+
+/// `agito run <args>` with extra environment variables for the run.
+fn run_with_env(state: &Path, args: &[&str], envs: &[(&str, &str)]) -> (Output, String) {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixture/Cargo.toml");
     // `run`'s own options must come before the cargo arguments, so the manifest goes between
     // them and the test arguments after `--`.
@@ -38,6 +43,7 @@ fn run(state: &Path, args: &[&str]) -> (Output, String) {
         .env("CARGO_TARGET_DIR", workspace().join("target/run-fixture"))
         .env("FIXTURE_STATE", state)
         .env_remove("FIXTURE_CRASH")
+        .envs(envs.iter().copied())
         .output()
         .expect("agito runs");
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
@@ -334,6 +340,45 @@ fn a11y_warn_reports_violations_and_enforce_fails_on_them() {
     assert!(
         stdout.contains("accessibility violation(s), in enforce mode"),
         "{stdout}"
+    );
+    std::fs::remove_dir_all(state).unwrap();
+}
+
+#[cfg(feature = "integration")]
+#[test]
+fn a_failed_test_s_trace_is_reported() {
+    let state = scratch("traces");
+    let junit = state.join("junit.xml");
+    let report = format!("junit:{}", junit.display());
+    let (output, stdout) = run_with_env(
+        &state,
+        &[
+            "--reporter",
+            &report,
+            "--features",
+            "browser",
+            "--",
+            "browser::fails_with_an_error",
+        ],
+        &[
+            ("AGITO_FAILURES_TRACE", "true"),
+            (
+                "AGITO_FAILURES_TRACE_PATH",
+                state.join("traces").to_str().unwrap(),
+            ),
+        ],
+    );
+    assert!(!output.status.success(), "{stdout}");
+    let trace = state.join("traces/browser__fails_with_an_error.trace.zip");
+    assert!(trace.exists(), "{stdout}");
+    assert!(
+        stdout.contains(&format!("trace: {}", trace.display())),
+        "{stdout}"
+    );
+    let xml = std::fs::read_to_string(&junit).unwrap();
+    assert!(
+        xml.contains(&format!("[[ATTACHMENT|{}]]", trace.display())),
+        "{xml}"
     );
     std::fs::remove_dir_all(state).unwrap();
 }

@@ -118,7 +118,7 @@ planned. That way the attribute can be used as `#[agito::test]`.
 | 3 | Plugins, selectors, locators, network/routing/HAR, dialogs, popups, uploads, downloads | Done |
 | 4 | `expect`, `#[agito::test]`, samples | Done; smaller gaps remain |
 | 5 | Firefox over WebDriver BiDi | Deferred until there is demand |
-| 6 | Accessibility, performance, coverage, tracing, video | In progress: accessibility and performance done; tracing, video and coverage next |
+| 6 | Accessibility, performance, coverage, tracing, video | In progress: accessibility, performance and tracing done; video and coverage next |
 | 7 | CLI | Done; `run` settings in `agito.config.json` left |
 | 8 | Recorder, codegen, check-selectors | Not started |
 | 9 | MCP server | Done, but for the recording group and `generate_pom`, which wait for phases 6 and 8 |
@@ -175,7 +175,7 @@ The first four items are step 2 of the [order of work](#order-of-work).
   signal handlers.
 - **Connecting:** done. `Browser::default_context` takes over the tabs already open in a
   browser agito connects to.
-- **Harness options:** `launch = fn` and failure tracing. `perf_budget(...)` is done.
+- **Harness options:** `launch = fn`. `perf_budget(...)` and failure tracing are done.
 - **Windows:** killing the shared test browser at process exit.
 
 ### Phase 5: Firefox / WebDriver BiDi (deferred)
@@ -216,7 +216,10 @@ The plan, when it comes:
   LCP/FCP/TTFB/CLS/INP assertions.
 - **Coverage:** JS precise coverage and CSS rule usage, the aggregator and thresholds, and
   source-map remapping (VLQ decoder, parser, fetcher, remapper).
-- **Tracing:** the zip packager, using Motus's layout: `trace.json`, `har.json`, screenshots.
+- **Tracing:** done, as a per-context test timeline rather than Motus's Chrome performance
+  trace, which Chrome allows once per browser at a time: `trace.json` is agito's event log,
+  with `har.json` and screenshots, and the Chrome timeline is the opt-in `chrome-trace.json`.
+  Failure tracing (`failure.trace`) is in the harness and `agito run`'s reports.
 - **Video:** screencast frames written by a port of the MJPEG/AVI writer.
 
 ### Phase 7: CLI (`agito`)

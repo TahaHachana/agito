@@ -231,12 +231,18 @@ pub fn junit(run: &Run) -> String {
                     xml(&notes.join("\n"))
                 );
             }
-            if let Some(shot) = &o.screenshot {
-                // Jenkins' JUnit attachments convention.
+            // Jenkins' JUnit attachments convention, one line each in the one <system-err> a
+            // test case may have.
+            let attachments: Vec<String> = [&o.screenshot, &o.trace]
+                .into_iter()
+                .flatten()
+                .map(|path| format!("[[ATTACHMENT|{}]]", path.display()))
+                .collect();
+            if !attachments.is_empty() {
                 let _ = writeln!(
                     body,
-                    "      <system-err>[[ATTACHMENT|{}]]</system-err>",
-                    xml(&shot.display().to_string())
+                    "      <system-err>{}</system-err>",
+                    xml(&attachments.join("\n"))
                 );
             }
             if body.is_empty() {
@@ -338,6 +344,13 @@ pub fn html(run: &Run) -> String {
         if o.status == Status::Failed {
             if let Some(output) = o.output.as_ref().or(o.message.as_ref()) {
                 let _ = write!(detail, "<pre>{}</pre>", xml(output));
+            }
+            if let Some(trace) = &o.trace {
+                let _ = write!(
+                    detail,
+                    "<p class=\"note\">Trace: <a href=\"{0}\">{0}</a></p>",
+                    xml(&trace.display().to_string())
+                );
             }
             if let Some(shot) = &o.screenshot
                 && let Ok(png) = std::fs::read(shot)
@@ -479,6 +492,7 @@ mod tests {
             message: None,
             output: None,
             screenshot: None,
+            trace: None,
             accessibility: Vec::new(),
         }
     }

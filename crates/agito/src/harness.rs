@@ -180,11 +180,10 @@ where
     let started = Instant::now();
     let attempts = options.retries + 1;
     let mut attempt = 0;
-    let (result, screenshot, accessibility) = loop {
+    let (result, artifacts) = loop {
         attempt += 1;
         let last_attempt = attempt == attempts;
-        let (result, screenshot, accessibility) =
-            RUNTIME.block_on(run_attempt(name, &options, &body));
+        let (result, artifacts) = RUNTIME.block_on(run_attempt(name, &options, &body));
         let retry = match &result {
             Attempt::SetupFailed(e) => e
                 .is_browser_lost()
@@ -200,7 +199,7 @@ where
                 "[RETRY] {name}: {why}; attempt {} of {attempts}",
                 attempt + 1
             ),
-            _ => break (result, screenshot, accessibility),
+            _ => break (result, artifacts),
         }
     };
 
@@ -224,8 +223,9 @@ where
         message: message.clone(),
         browser_lost,
         quarantine: options.quarantine.map(str::to_owned),
-        screenshot,
-        accessibility,
+        screenshot: artifacts.screenshot,
+        trace: artifacts.trace,
+        accessibility: artifacts.accessibility,
     });
 
     let Some(message) = message else {
@@ -241,16 +241,19 @@ where
     }
 }
 
-/// One attempt: fixtures, body, teardown. Also returns the failure screenshot, if one was saved.
-async fn run_attempt<F, Fut, R>(
-    name: &str,
-    options: &TestOptions,
-    body: &F,
-) -> (
-    Attempt,
-    Option<std::path::PathBuf>,
-    Vec<crate::accessibility::Violation>,
-)
+/// What an attempt left behind besides its outcome.
+#[derive(Default)]
+struct Artifacts {
+    /// The failure screenshot, if one was saved.
+    screenshot: Option<std::path::PathBuf>,
+    /// The failure trace, if one was saved.
+    trace: Option<std::path::PathBuf>,
+    /// What automatic accessibility audits found.
+    accessibility: Vec<crate::accessibility::Violation>,
+}
+
+/// One attempt: fixtures, body, teardown, and what it left behind.
+async fn run_attempt<F, Fut, R>(name: &str, options: &TestOptions, body: &F) -> (Attempt, Artifacts)
 where
     F: Fn(Fixtures) -> Fut,
     Fut: Future<Output = R>,
@@ -262,8 +265,18 @@ where
         .expect("semaphore is never closed");
     let fixtures = match setup(options).await {
         Ok(f) => f,
-        Err(e) => return (Attempt::SetupFailed(e), None, Vec::new()),
+        Err(e) => return (Attempt::SetupFailed(e), Artifacts::default()),
     };
+    // A trace of every test, kept for the ones that fail.
+    let tracing = config::get().failure.trace == Some(true)
+        && fixtures
+            .context
+            .start_tracing(crate::TracingOptions {
+                title: Some(name.to_owned()),
+                ..Default::default()
+            })
+            .await
+            .is_ok();
     let run = AssertUnwindSafe(body(fixtures.clone())).catch_unwind();
     let outcome = match options.perf_budget.clone() {
         Some(budget) => crate::performance::TEST_BUDGET.scope(budget, run).await,
@@ -297,6 +310,14 @@ where
     } else {
         None
     };
+    let trace = match (tracing, failed) {
+        (false, _) => None,
+        (true, true) => save_failure_trace(name, &fixtures.context).await,
+        (true, false) => {
+            let _ = fixtures.context.discard_tracing().await;
+            None
+        }
+    };
     let _ = fixtures.context.close().await;
     // A browser that went away under the test makes any failure meaningless, however the test
     // reported it: an assertion on an error it expected (`unwrap_err()` on a click that should
@@ -327,7 +348,14 @@ where
         },
         Err(panic) => Attempt::Panicked(panic),
     };
-    (attempt, screenshot, accessibility)
+    (
+        attempt,
+        Artifacts {
+            screenshot,
+            trace,
+            accessibility,
+        },
+    )
 }
 
 /// The text of a panic payload, as the default hook prints it.
@@ -383,6 +411,29 @@ async fn capture_failure(name: &str, page: &Page) -> Option<std::path::PathBuf> 
         return Some(std::path::absolute(&file).unwrap_or(file));
     }
     None
+}
+
+/// Saves the trace of a failed test when `failure.trace` is configured, and returns where.
+async fn save_failure_trace(
+    name: &str,
+    context: &crate::BrowserContext,
+) -> Option<std::path::PathBuf> {
+    let dir = config::get()
+        .failure
+        .trace_path
+        .clone()
+        .unwrap_or_else(|| "target/agito-failures".into());
+    let file = std::path::Path::new(&dir).join(format!("{}.trace.zip", artifact_name(name)));
+    match context.stop_tracing(&file).await {
+        Ok(()) => {
+            eprintln!("agito: failure trace saved to {}", file.display());
+            Some(std::path::absolute(&file).unwrap_or(file))
+        }
+        Err(e) => {
+            eprintln!("agito: the failure trace could not be saved: {e}");
+            None
+        }
+    }
 }
 
 /// A file-name-safe version of a test name.

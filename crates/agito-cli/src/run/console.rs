@@ -146,6 +146,9 @@ impl Console {
                 if let Some(shot) = &o.screenshot {
                     println!("screenshot: {}", shot.display());
                 }
+                if let Some(trace) = &o.trace {
+                    println!("trace: {}", trace.display());
+                }
             }
         }
         let flaky: Vec<&Outcome> = outcomes

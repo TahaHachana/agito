@@ -77,6 +77,7 @@ pub mod performance;
 pub mod plugin;
 pub mod selectors;
 pub mod storage;
+mod tracing_recorder;
 pub mod transport;
 
 #[cfg(any(test, feature = "testing"))]
@@ -99,6 +100,7 @@ pub use page::{
     ConsoleMessage, Dialog, ImageFormat, NavigateOptions, Page, PdfOptions, Response,
     ScreenshotOptions, UrlMatcher, WaitUntil,
 };
+pub use tracing_recorder::TracingOptions;
 
 #[doc(hidden)]
 pub mod __private {

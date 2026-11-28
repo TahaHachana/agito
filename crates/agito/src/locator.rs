@@ -626,6 +626,10 @@ impl Locator {
         action: impl Future<Output = Result<T>>,
     ) -> Result<T> {
         let hooks = self.page.context().inner.hooks.clone();
+        let recorder = self.page.context().recorder();
+        if let Some(recorder) = &recorder {
+            recorder.started(&self.page);
+        }
         for hook in &hooks {
             if let Err(e) = hook.before_action(&self.page, name).await {
                 tracing::warn!(error = %e, "lifecycle hook before_action failed");
@@ -636,12 +640,16 @@ impl Locator {
         self.page.sync_events().await;
         let summary = ActionResult {
             action: name.to_owned(),
+            target: self.description(),
             error: result.as_ref().err().map(|e| e.to_string()),
         };
         for hook in &hooks {
             if let Err(e) = hook.after_action(&self.page, &summary).await {
                 tracing::warn!(error = %e, "lifecycle hook after_action failed");
             }
+        }
+        if let Some(recorder) = recorder {
+            recorder.action_finished(&self.page, &summary).await;
         }
         result
     }

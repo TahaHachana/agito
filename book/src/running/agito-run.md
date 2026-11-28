@@ -70,9 +70,11 @@ Results: 39 passed, 1 failed, 1 flaky, 1 quarantined, 1 skipped, 42 total (18.20
 
 - `--reporter junit:results/junit.xml` writes JUnit XML, which CI systems display. Each
   test binary is a `<testsuite>`; a flaky pass carries a `<flakyFailure>`, and a quarantined
-  failure is noted without failing.
+  failure is noted without failing. A failure's screenshot and trace are attachments, in the
+  `[[ATTACHMENT|path]]` form Jenkins and GitLab read.
 - `--reporter html:results/report.html` writes a single page that works offline: the totals,
-  then every test, failures first with their output and failure screenshot.
+  then every test, failures first with their output, failure screenshot and a link to the
+  [trace](../writing/tracing.md#keeping-the-traces-of-failed-tests).
 
 The run exits with a failure code if any test failed that is not quarantined.
 

@@ -38,6 +38,8 @@ pub struct Outcome {
     /// What the test printed, as libtest captured it, for a failure.
     pub output: Option<String>,
     pub screenshot: Option<PathBuf>,
+    /// The trace saved when the test failed.
+    pub trace: Option<PathBuf>,
     /// What automatic accessibility audits found during the test.
     pub accessibility: Vec<agito::accessibility::Violation>,
 }
@@ -60,6 +62,7 @@ impl Outcome {
             message: None,
             output: None,
             screenshot: None,
+            trace: None,
             accessibility: Vec::new(),
         }
     }
@@ -263,6 +266,7 @@ fn apply_record(outcome: &mut Outcome, results_dir: &Path, binary: &Binary) {
     };
     outcome.duration = Some(Duration::from_secs_f64(record.duration_ms / 1000.0));
     outcome.screenshot = record.screenshot;
+    outcome.trace = record.trace;
     outcome.message = record.message;
     outcome.accessibility = record.accessibility;
     if let Some(reason) = record.quarantine {

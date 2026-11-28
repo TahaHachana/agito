@@ -12,7 +12,7 @@ run real browser tests.
 | 3 | Plugins, selectors, Locator + actionability, network/routing/HAR, dialogs/downloads/file chooser | Done |
 | 4 | `expect` assertions, `#[agito::test]` harness, samples | MVP done (see gaps) |
 | 5 | Firefox / WebDriver BiDi | Deferred until there is demand ([why](roadmap.md#phase-5-firefox--webdriver-bidi-deferred)) |
-| 6 | Accessibility, performance, coverage, tracing, video | In progress: accessibility and performance done; tracing, video and coverage next |
+| 6 | Accessibility, performance, coverage, tracing, video | In progress: accessibility, performance and tracing done; video and coverage next |
 | 7 | CLI (`agito`) | Done; `run` settings in `agito.config.json` left |
 | 8 | Recorder, codegen, check-selectors | Not started |
 | 9 | MCP server | Done, but for the recording group and `generate_pom`, which wait for phases 6 and 8 |
@@ -22,6 +22,7 @@ run real browser tests.
 
 | Motus | agito |
 |---|---|
+| `ITracing` (`Tracing.StartAsync` / `StopAsync`), `TracePackager`, `FailureTracing` | `context.start_tracing` / `stop_tracing` / `discard_tracing`, `TracingOptions`, `failure.trace` |
 | `PerformanceMetricsCollector`, `PerformanceBudget`, `[PerformanceBudget]`, `ToMeetPerformanceBudgetAsync`, `ToHaveLcpBelowAsync` and the other metric assertions | `page.performance_metrics()`, `performance::PerformanceBudget`, `perf_budget(...)`, `to_meet_performance_budget`, `to_have_lcp_below` and the others |
 | `MotusLauncher.LaunchAsync` / `ConnectAsync`, adopting a connected browser's open tabs | `agito::launch` / `agito::connect`, `Browser::default_context` |
 | `LaunchOptions`, `ContextOptions` | same names; `Default` applies config and env |
@@ -68,7 +69,7 @@ run real browser tests.
   - From the page: touch input, natural mouse motion, the cursor overlay.
   - Exposed bindings, permissions, geolocation, HTTP credentials.
   - Browser pool, heartbeat, and signal handlers.
-  - Harness options `launch = fn` and failure tracing.
+  - The harness option `launch = fn`.
 - **Platforms:** Windows launches over a WebSocket port. The shared test browser is killed at
   process exit only on Unix, where it is tied to the pipe.
 
@@ -256,6 +257,18 @@ run real browser tests.
   - A budget comes from `#[agito::test(perf_budget(...))]` or the config, as Motus's from its
     attribute or config. Metrics are not collected after every navigation or reported per
     test; `agito run` does not report them yet.
+
+- Tracing:
+  - A trace is a per-context test timeline: `trace.json` is agito's event log (actions with
+    their targets and durations, navigations, console, uncaught errors, dialogs), with
+    `har.json` and screenshots after each action and navigation. Motus's `trace.json` was the
+    Chrome performance timeline, which Chrome records once per browser at a time, so Motus
+    serialized traces behind a browser-wide lock and parallel tests waited on one another.
+    agito keeps that timeline as the opt-in `chrome-trace.json`, under the same lock.
+  - The trace has a `har.json`. Motus's packager wrote one only when a HAR log was attached,
+    which nothing did.
+  - Screenshots are JPEG captures after each action and navigation; Motus's came from the
+    timeline's screenshot category.
 
 ## Inherited as-is
 

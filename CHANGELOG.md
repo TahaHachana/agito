@@ -3,12 +3,20 @@
 ## Unreleased
 
 ### Breaking changes
+- `plugin::ActionResult` has a new field, `target`: the locator the action acted on.
 - `harness::TestOptions` has a new field, `perf_budget`.
 - `ContextOptions` has new fields, `storage_state` and `accessibility`, and `LaunchOptions`
   and `ConnectOptions` have a new field, `protocol_log`. Code that builds them with
   `..Default::default()`, as the docs do, is unaffected.
 
 ### Added
+- Tracing: `context.start_tracing` records a context's actions (with their targets, durations
+  and errors), navigations, console messages, uncaught errors, dialogs, network log and
+  screenshots; `stop_tracing(path)` saves them as a zip (`trace.json`, `har.json`,
+  screenshots), and `TracingOptions::timeline` adds the browser's performance timeline as
+  `chrome-trace.json`. Contexts trace independently, so parallel tests trace at once. With
+  `failure.trace` (or `AGITO_FAILURES_TRACE`), every `#[agito::test]` is traced and the trace
+  of a failure kept, which `agito run` lists, attaches to JUnit and links from HTML.
 - Performance: `page.performance_metrics()` reads the Core Web Vitals (LCP, FCP, TTFB, CLS as
   its worst session window, INP from interaction durations), the JS heap size, the DOM node
   count and each layout shift with the elements that moved, with nothing to enable first.
