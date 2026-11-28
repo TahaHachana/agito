@@ -101,3 +101,115 @@ mod tests {
         std::fs::remove_dir_all(base).unwrap();
     }
 }
+
+/// The directory files the tools write go to, unless `options` name another: one per server
+/// process, shared by every session, made on first use.
+pub(crate) fn output_dir(options: &crate::ServerOptions) -> PathBuf {
+    static DEFAULT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    options.output_dir.clone().unwrap_or_else(|| {
+        DEFAULT
+            .get_or_init(|| {
+                let stamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or_default();
+                std::env::temp_dir().join(format!("agito-mcp-{stamp}-{}", std::process::id()))
+            })
+            .clone()
+    })
+}
+
+/// Where a tool writes the file an agent asked for: `requested`, which must stay inside
+/// `root`, or a fresh name made of `prefix` and `extension` there. With `unrestricted`, any
+/// path goes.
+pub(crate) fn resolve_write(
+    root: &Path,
+    requested: Option<&str>,
+    prefix: &str,
+    extension: &str,
+    unrestricted: bool,
+) -> Result<PathBuf, String> {
+    let outside = || {
+        format!(
+            "Paths must stay inside the output directory {}. Start the server with \
+             --allow-unrestricted-file-access to lift this.",
+            root.display()
+        )
+    };
+    std::fs::create_dir_all(root).map_err(|e| {
+        format!(
+            "Could not create the output directory {}: {e}",
+            root.display()
+        )
+    })?;
+    let requested = requested.map(str::trim).filter(|r| !r.is_empty());
+    let Some(requested) = requested else {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or_default();
+        return Ok(root.join(format!("{prefix}-{stamp}.{extension}")));
+    };
+    let path = Path::new(requested);
+    if unrestricted {
+        return Ok(std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()));
+    }
+    if path.is_absolute() || path.has_root() {
+        return Err(outside());
+    }
+    // `..` and links are resolved through the deepest part of the path that exists, which
+    // must still be inside the root.
+    let candidate = root.join(path);
+    let real_root = std::fs::canonicalize(root).map_err(|e| e.to_string())?;
+    let mut existing = candidate.as_path();
+    let mut rest = Vec::new();
+    while !existing.exists() {
+        let (Some(parent), Some(name)) = (existing.parent(), existing.file_name()) else {
+            return Err(outside());
+        };
+        rest.push(name.to_owned());
+        existing = parent;
+    }
+    let mut resolved = std::fs::canonicalize(existing).map_err(|_| outside())?;
+    for name in rest.iter().rev() {
+        if name == ".." || name == "." {
+            return Err(outside());
+        }
+        resolved.push(name);
+    }
+    if resolved.starts_with(&real_root) && resolved != real_root {
+        Ok(resolved)
+    } else {
+        Err(outside())
+    }
+}
+
+#[cfg(test)]
+mod write_tests {
+    use super::*;
+
+    #[test]
+    fn writes_stay_inside_the_output_directory() {
+        let root = std::env::temp_dir().join(format!("agito-mcp-out-{}", std::process::id()));
+        let fresh = resolve_write(&root, None, "trace", "zip", false).unwrap();
+        assert!(fresh.starts_with(&root) && fresh.to_string_lossy().ends_with(".zip"));
+        let named = resolve_write(&root, Some("runs/checkout.zip"), "trace", "zip", false).unwrap();
+        assert!(named.ends_with("runs/checkout.zip"), "{}", named.display());
+        assert!(named.starts_with(std::fs::canonicalize(&root).unwrap()));
+        for escape in ["../out.zip", "a/../../out.zip", "/etc/out.zip"] {
+            let refused = resolve_write(&root, Some(escape), "trace", "zip", false);
+            assert!(refused.is_err(), "{escape}");
+        }
+        #[cfg(unix)]
+        {
+            let outside =
+                std::env::temp_dir().join(format!("agito-mcp-elsewhere-{}", std::process::id()));
+            std::fs::create_dir_all(&outside).unwrap();
+            std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
+            assert!(resolve_write(&root, Some("link/out.zip"), "t", "zip", false).is_err());
+            std::fs::remove_dir_all(outside).unwrap();
+        }
+        assert!(resolve_write(&root, Some("/tmp/anywhere.zip"), "t", "zip", true).is_ok());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}

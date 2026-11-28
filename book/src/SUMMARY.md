@@ -27,6 +27,7 @@
 - [Page objects](writing/page-objects.md)
 - [Flaky tests](writing/flaky-tests.md)
 - [Tracing](writing/tracing.md)
+- [Video](writing/video.md)
 
 # Running tests
 

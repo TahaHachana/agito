@@ -41,6 +41,7 @@ fn group_marker(capability: Capability) -> &'static str {
         Capability::Coordinates => "click_xy",
         Capability::Contexts => "context_create",
         Capability::Routing => "route_fulfill",
+        Capability::Recording => "trace_start",
     }
 }
 
@@ -130,6 +131,7 @@ impl AgitoServer {
                 Capability::Coordinates => Self::coordinate_tools(),
                 Capability::Contexts => Self::context_tools(),
                 Capability::Routing => Self::routing_tools(),
+                Capability::Recording => Self::recording_tools(),
             };
         }
         AgitoServer {

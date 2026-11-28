@@ -706,6 +706,15 @@ pub(crate) struct NetworkState {
     /// Sessions (by id; `""` for the page's own) with `Fetch` interception on.
     pub fetch_sessions: HashSet<String>,
     pub har: Option<HarRecorder>,
+    /// A trace's own network log, kept apart from the page's HAR recording.
+    pub trace_har: Option<HarRecorder>,
+}
+
+impl NetworkState {
+    /// The HAR logs being recorded: the page's, and a trace's.
+    pub fn hars(&mut self) -> impl Iterator<Item = &mut HarRecorder> {
+        self.har.iter_mut().chain(self.trace_har.iter_mut())
+    }
 }
 
 /// Collects a HAR 1.2 log of what the page loaded.

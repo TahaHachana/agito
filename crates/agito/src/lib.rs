@@ -79,6 +79,7 @@ pub mod selectors;
 pub mod storage;
 mod tracing_recorder;
 pub mod transport;
+pub mod video;
 
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;

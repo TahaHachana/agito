@@ -193,3 +193,34 @@ async fn contexts_trace_at_once_and_timelines_take_turns() -> agito::Result<()> 
     std::fs::remove_file(path).unwrap();
     browser.close().await
 }
+
+#[agito::test]
+async fn a_trace_leaves_the_page_s_own_har_recording_alone(
+    context: BrowserContext,
+    page: Page,
+) -> agito::Result<()> {
+    let base = serve(&[("/", 200, "<title>Shop</title>")]).await;
+    page.start_har();
+    context.start_tracing(Default::default()).await?;
+    page.goto(&base).await?;
+    let path = scratch("own-har");
+    context.stop_tracing(&path).await?;
+    // The page's recording is still running, with what the trace also saw.
+    let har = page
+        .stop_har()
+        .expect("the page's HAR recording survived the trace");
+    let urls = |log: &Value| -> Vec<String> {
+        log["log"]["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["request"]["url"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    assert!(urls(&har).contains(&format!("{base}/")), "{har}");
+    let files = unzip(&path);
+    let traced: Value = serde_json::from_slice(&files["har.json"]).unwrap();
+    assert!(urls(&traced).contains(&format!("{base}/")), "{traced}");
+    std::fs::remove_file(path).unwrap();
+    Ok(())
+}

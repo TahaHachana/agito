@@ -68,10 +68,22 @@ pub struct ServerOptions {
     /// List `browser_attach`, so an agent can attach to a running browser mid-session.
     /// Implied by `connect`.
     pub allow_attach: bool,
+    /// Where the tools that write files (traces, HAR logs, videos) put them. Default: a
+    /// directory for this process under the system temporary directory.
+    pub output_dir: Option<PathBuf>,
+    /// Record a video of every page into this directory, from when it opens until it closes.
+    pub record_video: Option<PathBuf>,
     /// The optional tool groups to list besides the always-available tools.
     pub capabilities: Vec<Capability>,
     /// Let tools open `file://` URLs.
     pub allow_unrestricted_file_access: bool,
+}
+
+impl ServerOptions {
+    /// Where the tools that write files put them: `output_dir`, or this process's default.
+    pub fn output_directory(&self) -> PathBuf {
+        policy::output_dir(self)
+    }
 }
 
 /// How long an action waits for the page to show what it did, unless told otherwise.
@@ -110,6 +122,7 @@ impl ServerOptions {
                 .unwrap_or(defaults.navigation_timeout),
             // An agent's session is not a test: automatic audits would only slow it down.
             accessibility: agito::accessibility::AccessibilityOptions::off(),
+            record_video: self.record_video.clone(),
             ..defaults
         }
     }

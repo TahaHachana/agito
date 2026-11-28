@@ -125,7 +125,7 @@ impl Recorder {
             return label.clone();
         }
         let label = format!("page-{}", pages.len() + 1);
-        page.start_har();
+        page.start_trace_har();
         pages.push((page.clone(), label.clone()));
         label
     }
@@ -283,7 +283,7 @@ impl BrowserContext {
             let _ = stop_timeline(timeline).await;
         }
         for (page, _) in recorder.pages.lock().unwrap().iter() {
-            page.stop_har();
+            page.stop_trace_har();
         }
         Ok(())
     }
@@ -402,7 +402,7 @@ fn write_trace(path: &Path, recorder: &Recorder, timeline: Option<Vec<u8>>) -> R
     // One HAR for the context: the first page's log, with every page's entries.
     let mut har: Option<Value> = None;
     for (page, label) in &pages {
-        let Some(mut log) = page.stop_har() else {
+        let Some(mut log) = page.stop_trace_har() else {
             continue;
         };
         if let Some(entries) = log["log"]["entries"].as_array_mut() {

@@ -12,16 +12,17 @@ run real browser tests.
 | 3 | Plugins, selectors, Locator + actionability, network/routing/HAR, dialogs/downloads/file chooser | Done |
 | 4 | `expect` assertions, `#[agito::test]` harness, samples | MVP done (see gaps) |
 | 5 | Firefox / WebDriver BiDi | Deferred until there is demand ([why](roadmap.md#phase-5-firefox--webdriver-bidi-deferred)) |
-| 6 | Accessibility, performance, coverage, tracing, video | In progress: accessibility, performance and tracing done; video and coverage next |
+| 6 | Accessibility, performance, coverage, tracing, video | In progress: all but coverage done |
 | 7 | CLI (`agito`) | Done; `run` settings in `agito.config.json` left |
 | 8 | Recorder, codegen, check-selectors | Not started |
-| 9 | MCP server | Done, but for the recording group and `generate_pom`, which wait for phases 6 and 8 |
+| 9 | MCP server | Done, but for `generate_pom`, which waits for phase 8 |
 | 10 | Visual runner | Not started |
 
 ## Ported
 
 | Motus | agito |
 |---|---|
+| `MjpegAviWriter`, `VideoRecorder`, `RecordVideoOptions`, `IPage.StartVideoRecordingAsync` / `StopVideoRecordingAsync` | `video` (the AVI writer), `page.start_video` / `stop_video` / `video_path`, `ContextOptions::record_video` |
 | `ITracing` (`Tracing.StartAsync` / `StopAsync`), `TracePackager`, `FailureTracing` | `context.start_tracing` / `stop_tracing` / `discard_tracing`, `TracingOptions`, `failure.trace` |
 | `PerformanceMetricsCollector`, `PerformanceBudget`, `[PerformanceBudget]`, `ToMeetPerformanceBudgetAsync`, `ToHaveLcpBelowAsync` and the other metric assertions | `page.performance_metrics()`, `performance::PerformanceBudget`, `perf_budget(...)`, `to_meet_performance_budget`, `to_have_lcp_below` and the others |
 | `MotusLauncher.LaunchAsync` / `ConnectAsync`, adopting a connected browser's open tabs | `agito::launch` / `agito::connect`, `Browser::default_context` |
@@ -232,8 +233,6 @@ run real browser tests.
   - `evaluate` also takes statements, returning the last one's value.
   - The routing tools install one route per context, consulted for every rule, so the
     newest-rule-wins order is the table's own rather than the engine's.
-  - Not yet: the `recording` group, which needs tracing and video, and with it the output
-    directory, since nothing else writes files.
   - The HTTP server offers protocol versions up to 2025-11-25, which keep sessions: under
     2026-07-28 every request would get a server, and a browser, of its own.
   - `upload_files` reads the files itself and hands the page their contents, so it works
@@ -269,6 +268,17 @@ run real browser tests.
     which nothing did.
   - Screenshots are JPEG captures after each action and navigation; Motus's came from the
     timeline's screenshot category.
+
+- Video:
+  - Frames are placed at their capture times, and still moments are written as AVI's
+    zero-length repeat chunks, so a video plays as long as the test took. Motus wrote frames
+    as they arrived at an average rate, so a page still for seconds and then animating played
+    back distorted in time. The last frame is written again at the end, so converting to MP4
+    keeps the final still moment.
+  - The frame size comes from the first frame's JPEG rather than the requested size.
+  - Closing a context waits for its videos to be finished.
+- The MCP output directory confines writes as Motus's does; the `recording` group writes a
+  trace's own network log rather than the page's HAR recording, so the two run side by side.
 
 ## Inherited as-is
 

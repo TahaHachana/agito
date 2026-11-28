@@ -30,14 +30,18 @@ pub enum Capability {
     /// `route_fulfill`, `route_abort`, `route_continue`, `unroute` and `route_list`: mocking
     /// and blocking requests.
     Routing,
+    /// `trace_start`, `trace_stop`, `har_start`, `har_stop`, `video_start` and `video_stop`:
+    /// recording what happened to files in the output directory.
+    Recording,
 }
 
 impl Capability {
     /// Every group, by its `--caps` name.
-    pub const ALL: [(&str, Capability); 3] = [
+    pub const ALL: [(&str, Capability); 4] = [
         ("coordinates", Capability::Coordinates),
         ("contexts", Capability::Contexts),
         ("routing", Capability::Routing),
+        ("recording", Capability::Recording),
     ];
 
     /// Parses a comma-separated list, as `--caps` and `AGITO_MCP_CAPS` take it.
@@ -58,15 +62,8 @@ impl std::str::FromStr for Capability {
         if let Some((_, cap)) = Capability::ALL.iter().find(|(n, _)| *n == name) {
             return Ok(*cap);
         }
-        if name == "recording" {
-            return Err(
-                "the recording group is not available yet: agito does not record \
-                        traces or video so far"
-                    .into(),
-            );
-        }
         Err(format!(
-            "unknown tool group '{s}': expected coordinates, contexts or routing"
+            "unknown tool group '{s}': expected coordinates, contexts, routing or recording"
         ))
     }
 }
@@ -748,12 +745,178 @@ mod tests {
                 Capability::Contexts
             ])
         );
-        assert!(
-            Capability::parse_list("recording")
-                .unwrap_err()
-                .contains("not available yet")
+        assert_eq!(
+            Capability::parse_list("recording"),
+            Ok(vec![Capability::Recording])
         );
         assert!(Capability::parse_list("teleport").is_err());
         assert_eq!(Capability::parse_list(""), Ok(vec![]));
+    }
+}
+
+/// `trace_start`'s arguments.
+#[derive(Deserialize, JsonSchema)]
+pub struct TraceStartArgs {
+    /// Take a screenshot after each action and navigation. Defaults to true.
+    screenshots: Option<bool>,
+    /// Also record the browser's performance timeline, for Chrome DevTools or Perfetto.
+    /// Defaults to false: it covers the whole browser, and one runs at a time.
+    timeline: Option<bool>,
+}
+
+/// Arguments for the tools that write a file.
+#[derive(Deserialize, JsonSchema)]
+pub struct WriteArgs {
+    /// Where to write the file, relative to the server's output directory. Omit for a fresh
+    /// name there.
+    path: Option<String>,
+}
+
+#[tool_router(router = recording_tools, vis = "pub(crate)")]
+impl AgitoServer {
+    #[tool(
+        name = "trace_start",
+        description = "Begins recording a trace of the active context: each action with its \
+            target, duration and error, navigations, console messages, uncaught errors, dialogs, \
+            the network log, and a screenshot after each action. Call trace_stop to write it.",
+        annotations(title = "Start trace recording", destructive_hint = false)
+    )]
+    async fn trace_start(&self, Parameters(args): Parameters<TraceStartArgs>) -> CallToolResult {
+        let tab = match self.tab().await {
+            Ok(tab) => tab,
+            Err(result) => return result,
+        };
+        let options = agito::TracingOptions {
+            title: None,
+            screenshots: args.screenshots.unwrap_or(true),
+            timeline: args.timeline.unwrap_or(false),
+        };
+        match tab.page.context().start_tracing(options).await {
+            Ok(()) => text("Tracing the active context. Call trace_stop to write the trace."),
+            Err(e) => error(format!("Starting the trace failed: {e}")),
+        }
+    }
+
+    #[tool(
+        name = "trace_stop",
+        description = "Stops the trace started by trace_start and writes it to a zip file \
+            (trace.json, har.json, screenshots). Returns the file's absolute path.",
+        annotations(title = "Stop trace recording", destructive_hint = false)
+    )]
+    async fn trace_stop(&self, Parameters(args): Parameters<WriteArgs>) -> CallToolResult {
+        let path = match self.output_path(args.path.as_deref(), "trace", "zip") {
+            Ok(path) => path,
+            Err(refusal) => return error(refusal),
+        };
+        let tab = match self.tab().await {
+            Ok(tab) => tab,
+            Err(result) => return result,
+        };
+        match tab.page.context().stop_tracing(&path).await {
+            Ok(()) => text(format!("Trace written to {}", path.display())),
+            Err(e) => error(format!("Stopping the trace failed: {e}")),
+        }
+    }
+
+    #[tool(
+        name = "har_start",
+        description = "Begins recording the active page's network traffic. Call har_stop to \
+            write it as an HTTP Archive (HAR) file.",
+        annotations(title = "Start HAR recording", destructive_hint = false)
+    )]
+    async fn har_start(&self) -> CallToolResult {
+        let tab = match self.tab().await {
+            Ok(tab) => tab,
+            Err(result) => return result,
+        };
+        tab.page.start_har();
+        text("Recording the active page's network traffic. Call har_stop to write it.")
+    }
+
+    #[tool(
+        name = "har_stop",
+        description = "Stops the recording started by har_start and writes the captured traffic \
+            to an HTTP Archive (HAR) file. Returns the file's absolute path.",
+        annotations(title = "Stop HAR recording", destructive_hint = false)
+    )]
+    async fn har_stop(&self, Parameters(args): Parameters<WriteArgs>) -> CallToolResult {
+        let path = match self.output_path(args.path.as_deref(), "network", "har") {
+            Ok(path) => path,
+            Err(refusal) => return error(refusal),
+        };
+        let tab = match self.tab().await {
+            Ok(tab) => tab,
+            Err(result) => return result,
+        };
+        match tab.page.stop_har_to(&path) {
+            Ok(()) => text(format!("HAR written to {}", path.display())),
+            Err(e) => error(format!("Stopping the HAR recording failed: {e}")),
+        }
+    }
+
+    #[tool(
+        name = "video_start",
+        description = "Begins recording the active page to a video file (MJPEG in AVI) at the \
+            viewport's size, playing in real time. Call video_stop to finish the file. No pointer \
+            is drawn.",
+        annotations(title = "Start video recording", destructive_hint = false)
+    )]
+    async fn video_start(&self, Parameters(args): Parameters<WriteArgs>) -> CallToolResult {
+        if self.options.record_video.is_some() {
+            return error(
+                "Every page is already being recorded: the server was started with \
+                 --record-video, and each page's video is finished when it closes.",
+            );
+        }
+        let path = match self.output_path(args.path.as_deref(), "video", "avi") {
+            Ok(path) => path,
+            Err(refusal) => return error(refusal),
+        };
+        let tab = match self.tab().await {
+            Ok(tab) => tab,
+            Err(result) => return result,
+        };
+        match tab.page.start_video(&path).await {
+            Ok(()) => text(format!(
+                "Recording the active page to {}. Call video_stop to finish it.",
+                path.display()
+            )),
+            Err(e) => error(format!("Starting the video failed: {e}")),
+        }
+    }
+
+    #[tool(
+        name = "video_stop",
+        description = "Stops the recording started by video_start and finishes the video file. \
+            Returns the file's absolute path.",
+        annotations(title = "Stop video recording", destructive_hint = false)
+    )]
+    async fn video_stop(&self) -> CallToolResult {
+        let tab = match self.tab().await {
+            Ok(tab) => tab,
+            Err(result) => return result,
+        };
+        match tab.page.stop_video().await {
+            Ok(path) => text(format!("Video written to {}", path.display())),
+            Err(e) => error(format!("Stopping the video failed: {e}")),
+        }
+    }
+}
+
+impl AgitoServer {
+    /// Where to write a file the agent named, or a fresh one, inside the output directory.
+    fn output_path(
+        &self,
+        requested: Option<&str>,
+        prefix: &str,
+        extension: &str,
+    ) -> Result<std::path::PathBuf, String> {
+        crate::policy::resolve_write(
+            &self.options.output_directory(),
+            requested,
+            prefix,
+            extension,
+            self.options.allow_unrestricted_file_access,
+        )
     }
 }

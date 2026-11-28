@@ -106,6 +106,9 @@ pub struct ContextOptions {
     /// Cookies and local storage to start with, such as a signed-in session saved with
     /// [`BrowserContext::storage_state`].
     pub storage_state: Option<crate::storage::StorageState>,
+    /// Record a video of every page into this directory, one `.avi` per page named by its
+    /// target id, from when it opens until it closes. See [`Page::start_video`].
+    pub record_video: Option<PathBuf>,
     /// Automatic accessibility audits, from the `accessibility` section of
     /// `agito.config.json` by default; off when it has none.
     pub accessibility: crate::accessibility::AccessibilityOptions,
@@ -136,6 +139,7 @@ impl Default for ContextOptions {
             action_timeout: Duration::from_millis(c.locator.timeout.unwrap_or(30_000)),
             navigation_timeout: Duration::from_secs(30),
             storage_state: None,
+            record_video: None,
             accessibility: crate::accessibility::AccessibilityOptions::default(),
         }
     }
@@ -445,6 +449,12 @@ impl BrowserContext {
         }
         if let Some(recorder) = self.recorder() {
             recorder.page_opened(&page);
+        }
+        if let Some(dir) = &self.inner.options.record_video {
+            let path = dir.join(format!("{}.avi", page.target_id()));
+            if let Err(e) = page.start_video(&path).await {
+                tracing::warn!(error = %e, path = %path.display(), "could not start recording a page");
+            }
         }
         let handlers = self.inner.page_handlers.lock().unwrap().clone();
         for handler in handlers {
@@ -793,6 +803,9 @@ impl BrowserContext {
         if self.inner.closed.swap(true, Ordering::SeqCst) {
             return Ok(());
         }
+        // Videos are finished while their pages still paint, so the files are whole when
+        // close returns.
+        futures::future::join_all(self.pages().iter().map(Page::finish_video)).await;
         for page in self.pages() {
             page.inner.mark_closed();
         }

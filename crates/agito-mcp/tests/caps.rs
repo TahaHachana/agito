@@ -46,6 +46,7 @@ async fn groups_only_add_to_the_catalog() {
         Capability::Contexts,
         Capability::Routing,
         Capability::Routing,
+        Capability::Recording,
     ]))
     .await;
     let every = names(&all).await;
@@ -61,6 +62,8 @@ async fn groups_only_add_to_the_catalog() {
             "context_list",
             "context_select",
             "drag",
+            "har_start",
+            "har_stop",
             "hover_xy",
             "move_xy",
             "resize",
@@ -69,7 +72,11 @@ async fn groups_only_add_to_the_catalog() {
             "route_fulfill",
             "route_list",
             "scroll_xy",
+            "trace_start",
+            "trace_stop",
             "unroute",
+            "video_start",
+            "video_stop",
         ]
     );
     all.stop().await;
@@ -347,4 +354,102 @@ async fn routes_mock_block_and_redirect_requests() {
         .await;
     assert!(refused.contains("file: URLs are blocked"), "{refused}");
     h.stop().await;
+}
+
+fn recording(dir: &std::path::Path) -> ServerOptions {
+    ServerOptions {
+        capabilities: vec![Capability::Recording],
+        output_dir: Some(dir.to_path_buf()),
+        ..ServerOptions::default()
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn recordings_are_written_inside_the_output_directory() {
+    let dir = std::env::temp_dir().join(format!("agito-mcp-recordings-{}", std::process::id()));
+    let h = Harness::with(recording(&dir)).await;
+    h.ok("navigate", json!({ "url": page("<button>Go</button>") }))
+        .await;
+
+    h.ok("trace_start", json!({})).await;
+    h.ok("video_start", json!({ "path": "videos/run.avi" }))
+        .await;
+    h.ok("har_start", json!({})).await;
+    h.ok("click", json!({ "ref": "button" })).await;
+
+    let trace = h
+        .ok("trace_stop", json!({ "path": "runs/checkout.zip" }))
+        .await;
+    let trace_path = trace
+        .strip_prefix("Trace written to ")
+        .expect("a path")
+        .to_owned();
+    assert!(trace_path.ends_with("runs/checkout.zip"), "{trace}");
+    let video = h.ok("video_stop", json!({})).await;
+    assert!(video.ends_with("videos/run.avi"), "{video}");
+    let har = h.ok("har_stop", json!({})).await;
+    let har_path = har
+        .strip_prefix("HAR written to ")
+        .expect("a path")
+        .to_owned();
+    assert!(har_path.ends_with(".har"), "{har}");
+
+    let real = std::fs::canonicalize(&dir).unwrap();
+    for written in [&trace_path, &har_path] {
+        let written = std::fs::canonicalize(written).unwrap();
+        assert!(written.starts_with(&real), "{}", written.display());
+    }
+    assert!(
+        std::fs::read(&trace_path).unwrap().starts_with(b"PK"),
+        "a zip"
+    );
+    assert!(
+        std::fs::read(dir.join("videos/run.avi"))
+            .unwrap()
+            .starts_with(b"RIFF")
+    );
+    let har: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&har_path).unwrap()).unwrap();
+    assert!(har["log"]["entries"].is_array(), "{har}");
+
+    let escape = h
+        .err("trace_stop", json!({ "path": "../escape.zip" }))
+        .await;
+    assert!(
+        escape.starts_with("Paths must stay inside the output directory"),
+        "{escape}"
+    );
+    h.stop().await;
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn record_video_records_every_page() {
+    let dir = std::env::temp_dir().join(format!("agito-mcp-record-video-{}", std::process::id()));
+    let h = Harness::with(ServerOptions {
+        record_video: Some(dir.clone()),
+        ..recording(&dir)
+    })
+    .await;
+    h.ok("navigate", json!({ "url": page("<h1>One</h1>") }))
+        .await;
+    h.ok("tab_open", json!({ "url": page("<h1>Two</h1>") }))
+        .await;
+    let refused = h.err("video_start", json!({})).await;
+    assert!(
+        refused.starts_with("Every page is already being recorded"),
+        "{refused}"
+    );
+    h.stop().await;
+    // The server closed its browser, which finished each page's video.
+    let videos: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|x| x == "avi"))
+        .collect();
+    assert_eq!(videos.len(), 2, "{videos:?}");
+    for video in videos {
+        assert!(std::fs::read(video.path()).unwrap().starts_with(b"RIFF"));
+    }
+    std::fs::remove_dir_all(dir).unwrap();
 }

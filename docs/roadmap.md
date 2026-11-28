@@ -118,10 +118,10 @@ planned. That way the attribute can be used as `#[agito::test]`.
 | 3 | Plugins, selectors, locators, network/routing/HAR, dialogs, popups, uploads, downloads | Done |
 | 4 | `expect`, `#[agito::test]`, samples | Done; smaller gaps remain |
 | 5 | Firefox over WebDriver BiDi | Deferred until there is demand |
-| 6 | Accessibility, performance, coverage, tracing, video | In progress: accessibility, performance and tracing done; video and coverage next |
+| 6 | Accessibility, performance, coverage, tracing, video | In progress: all but coverage done |
 | 7 | CLI | Done; `run` settings in `agito.config.json` left |
 | 8 | Recorder, codegen, check-selectors | Not started |
-| 9 | MCP server | Done, but for the recording group and `generate_pom`, which wait for phases 6 and 8 |
+| 9 | MCP server | Done, but for `generate_pom`, which waits for phase 8 |
 | 10 | Visual runner | Not started |
 
 Releases: 0.1.0 covered phases 0-4 (MVP); 0.2.0 added iframes and network; 0.3.0 added
@@ -156,7 +156,7 @@ phase number:
      tracing and video.
    - D, done: streamable HTTP with a bearer token, client roots for `upload_files`, and
      `--connect` / `browser_attach` on `Browser::default_context`. The output directory
-     follows the first tool that writes a file, the recording group.
+     came with the recording group, in phase 6's increment C.
 5. **The rest of phase 6** (performance, coverage, tracing, video), then phases 8 and 10.
 6. **Phase 5, Firefox,** when someone needs it.
 
@@ -220,7 +220,8 @@ The plan, when it comes:
   trace, which Chrome allows once per browser at a time: `trace.json` is agito's event log,
   with `har.json` and screenshots, and the Chrome timeline is the opt-in `chrome-trace.json`.
   Failure tracing (`failure.trace`) is in the harness and `agito run`'s reports.
-- **Video:** screencast frames written by a port of the MJPEG/AVI writer.
+- **Video:** done. Screencast frames written by an MJPEG/AVI writer that keeps real time,
+  per page or for every page of a context.
 
 ### Phase 7: CLI (`agito`)
 

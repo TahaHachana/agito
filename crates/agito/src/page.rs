@@ -410,6 +410,8 @@ pub(crate) struct PageInner {
     /// One per pump: a request to be told once the pump has applied every event received so
     /// far. See [`Page::sync_events`].
     barriers: Mutex<Vec<mpsc::UnboundedSender<oneshot::Sender<()>>>>,
+    /// The video being recorded, if any.
+    pub(crate) video: Mutex<Option<crate::video::Recording>>,
 }
 
 impl PageInner {
@@ -551,6 +553,7 @@ impl Page {
             closed: AtomicBool::new(false),
             pumps: Mutex::new(Vec::new()),
             barriers: Mutex::new(Vec::new()),
+            video: Mutex::new(None),
         });
         let page = Page { inner };
         page.start_pump(session.clone(), None);
@@ -1141,6 +1144,8 @@ impl Page {
         if self.is_closed() {
             return Ok(());
         }
+        // While the page still paints, so the video has its last frames.
+        self.finish_video().await;
         let browser = self.inner.context.browser().clone();
         let result = browser
             .browser_session()
@@ -1619,6 +1624,22 @@ impl Page {
         Ok(())
     }
 
+    /// Starts the network log a trace keeps, apart from [`start_har`](Self::start_har)'s.
+    pub(crate) fn start_trace_har(&self) {
+        self.inner.network.lock().unwrap().trace_har = Some(Default::default());
+    }
+
+    /// Stops the trace's network log and returns it.
+    pub(crate) fn stop_trace_har(&self) -> Option<Value> {
+        self.inner
+            .network
+            .lock()
+            .unwrap()
+            .trace_har
+            .take()
+            .map(|h| h.to_har())
+    }
+
     /// Starts recording a HAR log of everything the page loads.
     pub fn start_har(&self) {
         self.inner.network.lock().unwrap().har = Some(Default::default());
@@ -2050,7 +2071,7 @@ async fn event_pump(
                         Arc::downgrade(&inner),
                     );
                     net.requests.insert(e.request_id.clone(), request.clone());
-                    if let Some(har) = &mut net.har {
+                    for har in net.hars() {
                         har.on_request(&e);
                     }
                     out.push(NetworkEvent::Request(request));
@@ -2064,7 +2085,7 @@ async fn event_pump(
                 let data = ResponseData::from_cdp(&e.response, &e.request_id, session.clone());
                 let response = {
                     let mut net = inner.network.lock().unwrap();
-                    if let Some(har) = &mut net.har {
+                    for har in net.hars() {
                         har.on_response(&e);
                     }
                     let request = net.requests.get(&e.request_id).cloned();
@@ -2091,7 +2112,7 @@ async fn event_pump(
                 let error = params["errorText"].as_str().unwrap_or("failed").to_owned();
                 let request = {
                     let mut net = inner.network.lock().unwrap();
-                    if let Some(har) = &mut net.har {
+                    for har in net.hars() {
                         har.on_end(
                             id,
                             params["timestamp"].as_f64().unwrap_or(0.0),

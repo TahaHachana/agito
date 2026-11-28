@@ -65,12 +65,22 @@ pub struct McpArgs {
     #[arg(long, value_name = "POLICY", default_value = "ask")]
     dialogs: DialogPolicy,
 
-    /// Optional tool groups to add: coordinates, contexts, routing. Separate them with commas
-    /// or repeat the flag. Outranks AGITO_MCP_CAPS.
+    /// Optional tool groups to add: coordinates, contexts, routing, recording. Separate them
+    /// with commas or repeat the flag. Outranks AGITO_MCP_CAPS.
     #[arg(long = "caps", value_name = "GROUPS")]
     caps: Vec<String>,
 
-    /// Let tools open file:// URLs and read files from anywhere.
+    /// Where the tools that write files (traces, HAR logs, videos) put them. Default: a
+    /// directory for this run under the system temporary directory.
+    #[arg(long, value_name = "DIR")]
+    output_dir: Option<PathBuf>,
+
+    /// Record a video of every page into this directory, one file per page, finished when the
+    /// page closes.
+    #[arg(long, value_name = "DIR")]
+    record_video: Option<PathBuf>,
+
+    /// Let tools open file:// URLs, and read and write files anywhere.
     #[arg(long)]
     allow_unrestricted_file_access: bool,
 
@@ -175,9 +185,16 @@ pub async fn mcp(args: McpArgs) -> Result<()> {
         dialogs: args.dialogs,
         capabilities,
         connect: args.connect,
+        output_dir: args.output_dir,
+        record_video: args.record_video,
         allow_attach: args.allow_attach,
         allow_unrestricted_file_access: args.allow_unrestricted_file_access,
     };
+    // Every result that writes a file names it, but the operator should know where to look.
+    eprintln!(
+        "agito mcp: files the tools write go to {}",
+        options.output_directory().display()
+    );
     if !args.http {
         return agito_mcp::serve_stdio(options)
             .await

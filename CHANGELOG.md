@@ -5,11 +5,18 @@
 ### Breaking changes
 - `plugin::ActionResult` has a new field, `target`: the locator the action acted on.
 - `harness::TestOptions` has a new field, `perf_budget`.
-- `ContextOptions` has new fields, `storage_state` and `accessibility`, and `LaunchOptions`
+- `ContextOptions` has new fields, `storage_state`, `accessibility` and `record_video`, and `LaunchOptions`
   and `ConnectOptions` have a new field, `protocol_log`. Code that builds them with
   `..Default::default()`, as the docs do, is unaffected.
 
 ### Added
+- Video: `page.start_video(path)` and `stop_video()` record a page as MJPEG in AVI, from the
+  browser's screencast, playing in real time: still moments repeat the frame before rather
+  than vanish. `ContextOptions::record_video` records every page of a context, finished when
+  the page or context closes.
+- The MCP server gains the `recording` group (`trace_start`, `trace_stop`, `har_start`,
+  `har_stop`, `video_start`, `video_stop`), which writes only inside its output directory
+  (`--output-dir`, printed at startup), and `--record-video`.
 - Tracing: `context.start_tracing` records a context's actions (with their targets, durations
   and errors), navigations, console messages, uncaught errors, dialogs, network log and
   screenshots; `stop_tracing(path)` saves them as a zip (`trace.json`, `har.json`,

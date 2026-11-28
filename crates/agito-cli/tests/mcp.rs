@@ -126,13 +126,13 @@ fn caps_add_tool_groups_and_unknown_ones_are_refused() {
     assert!(client.finish().success());
 
     let refused = Command::new(env!("CARGO_BIN_EXE_agito"))
-        .args(["mcp", "--caps", "coordinates,recording"])
+        .args(["mcp", "--caps", "coordinates,teleport"])
         .output()
         .unwrap();
     assert!(!refused.status.success());
     let stderr = String::from_utf8_lossy(&refused.stderr);
     assert!(
-        stderr.contains("--caps: the recording group is not available yet"),
+        stderr.contains("--caps: unknown tool group 'teleport'"),
         "{stderr}"
     );
 }
