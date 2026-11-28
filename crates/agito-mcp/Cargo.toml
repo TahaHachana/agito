@@ -1,0 +1,28 @@
+[package]
+name = "agito-mcp"
+description = "A Model Context Protocol server that lets AI agents drive a browser through agito"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+documentation = "https://tahahachana.github.io/agito/mcp.html"
+keywords = ["mcp", "browser", "automation", "agent", "chrome"]
+categories = ["development-tools", "web-programming"]
+
+[dependencies]
+agito = { workspace = true }
+rmcp = { version = "3.12", features = ["server", "transport-io"] }
+schemars = "1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+base64 = "0.23"
+
+[features]
+# Enables the tests that drive a real Chrome/Chromium.
+integration = []
+
+[dev-dependencies]
+rmcp = { version = "3.12", features = ["client"] }

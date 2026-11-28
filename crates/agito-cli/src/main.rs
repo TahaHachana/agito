@@ -2,6 +2,7 @@
 
 mod capture;
 mod install;
+mod mcp;
 mod run;
 
 use std::path::PathBuf;
@@ -31,6 +32,8 @@ enum Command {
     Screenshot(capture::ScreenshotArgs),
     /// Save a page as a PDF.
     Pdf(capture::PdfArgs),
+    /// Serve a Model Context Protocol server over stdio, so AI agents can drive a browser.
+    Mcp(mcp::McpArgs),
     /// Build and run the tests, with sharding, retries, quarantine and reports.
     Run(run::RunArgs),
     /// Work with the reports of a sharded run.
@@ -71,6 +74,7 @@ async fn main() -> ExitCode {
         Command::Install(args) => run_install(args).await,
         Command::Screenshot(args) => capture::screenshot(args).await,
         Command::Pdf(args) => capture::pdf(args).await,
+        Command::Mcp(args) => mcp::mcp(args).await,
         Command::Shard {
             command: ShardCommand::Merge(args),
         } => match run::merge::merge(args) {

@@ -13,6 +13,7 @@ rust-version = "1.88"
 [workspace.dependencies]
 agito-protocol = { path = "crates/agito-protocol", version = "0.3.0" }
 agito = { path = "crates/agito", version = "0.3.0" }
+agito-mcp = { path = "crates/agito-mcp", version = "0.3.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
