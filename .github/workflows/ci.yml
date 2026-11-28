@@ -48,10 +48,24 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: browser-actions/setup-chrome@v2
         id: chrome
-      - name: Browser tests
-        run: cargo test -p agito -p agito-samples -p agito-cli --features agito/integration,agito-samples/integration,agito-cli/integration
+      # Through agito run, so the runner is exercised on every push. Doctests are not run
+      # here; the test job runs them with cargo test.
+      - name: Browser tests, through agito run
+        run: >-
+          cargo run -q -p agito-cli --
+          run
+          --reporter junit:target/agito-results/junit.xml
+          --reporter html:target/agito-results/report.html
+          -p agito -p agito-samples -p agito-cli
+          --features agito/integration,agito-samples/integration,agito-cli/integration
         env:
           AGITO_EXECUTABLE_PATH: ${{ steps.chrome.outputs.chrome-path }}
+      - name: Keep the test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-test-reports
+          path: target/agito-results/
       - name: agito install, then launch the installed build
         # No AGITO_EXECUTABLE_PATH here: the launcher finds the build through the marker.
         run: |

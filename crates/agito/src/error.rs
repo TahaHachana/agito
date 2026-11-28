@@ -137,7 +137,12 @@ pub enum ErrorKind {
         dom_snapshot: Option<String>,
     },
 
-    /// A selector that must match one element matched several.
+    /// Never raised: an action acts on the first element its locator matches. Kept so code that
+    /// matches on it still compiles.
+    #[deprecated(
+        since = "0.3.1",
+        note = "never raised, since an action uses the first match; it will be removed in 0.4"
+    )]
     #[error("Selector '{selector}' matched {matched} elements, expected one.")]
     AmbiguousSelector {
         /// The selector.
@@ -299,14 +304,5 @@ mod tests {
             dom_snapshot: None,
         };
         assert_eq!(e.to_string(), "No element found for selector: #a");
-        let e = ErrorKind::AmbiguousSelector {
-            selector: "li".into(),
-            page_url: String::new(),
-            matched: 3,
-        };
-        assert_eq!(
-            e.to_string(),
-            "Selector 'li' matched 3 elements, expected one."
-        );
     }
 }

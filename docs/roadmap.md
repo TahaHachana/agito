@@ -135,8 +135,8 @@ phase number:
 1. **Ship 0.3.0, with documentation.** Done. The book (`book/`) is written and deploys to GitHub
    Pages from `main`. Merge the CLI work, check that `agito run` and `agito install` pass CI on
    macOS and Windows (until now they have only run on Linux), and release, including the first
-   `agito-cli`. Run CI's browser tests through `agito run`, so it is exercised on every push
-   and CI gets JUnit results.
+   `agito-cli`. CI's browser tests run through `agito run`, so it is exercised on every
+   push, and its JUnit and HTML reports are kept as an artifact.
 2. **The gaps users hit first,** from [Remaining in phases 1-4](#remaining-in-phases-1-4):
    storage state (reusing a login), the protocol log, `has` / `has_not` filters, and the role
    and accessible-name assertions.
