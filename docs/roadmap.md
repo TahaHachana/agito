@@ -137,12 +137,11 @@ phase number:
    macOS and Windows (until now they have only run on Linux), and release, including the first
    `agito-cli`. CI's browser tests run through `agito run`, so it is exercised on every
    push, and its JUnit and HTML reports are kept as an artifact.
-2. **The gaps users hit first,** from [Remaining in phases 1-4](#remaining-in-phases-1-4):
-   storage state (reusing a login, done), `has` / `has_not` filters (done), the protocol log
-   (done), and the role and accessible-name assertions.
-3. **Phase 6's accessibility layer.** Reading the browser's accessibility tree serves three
-   things at once: the role and accessible-name assertions, the accessibility audits behind
-   `agito run --a11y`, and the snapshot format the MCP server reproduces.
+2. **The gaps users hit first:** done. Storage state (reusing a login), the `has` /
+   `has_not` filters, the protocol log, and the role and accessible-name assertions.
+3. **Phase 6's accessibility layer.** The browser's accessibility tree, which the role and
+   accessible-name assertions already read element by element, next serves the accessibility
+   audits behind `agito run --a11y`, and the snapshot format the MCP server reproduces.
 4. **Phase 9, the MCP server,** which lets agents drive a browser through agito.
 5. **The rest of phase 6** (performance, coverage, tracing, video), then phases 8 and 10.
 6. **Phase 5, Firefox,** when someone needs it.
@@ -155,8 +154,6 @@ and re-runs the affected tests, at about 10s per crash. What triggers it is not 
 
 The first four items are step 2 of the [order of work](#order-of-work).
 
-- **Locators and assertions:** the accessible-name and role assertions. The `has` / `has_not`
-  filters are done.
 - **Context state:** exposed bindings, permissions, geolocation and HTTP credentials. Storage
   state (to reuse a login) is done.
 - **Input:** touch, natural mouse motion, and the cursor overlay.
