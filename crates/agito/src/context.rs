@@ -106,6 +106,9 @@ pub struct ContextOptions {
     /// Cookies and local storage to start with, such as a signed-in session saved with
     /// [`BrowserContext::storage_state`].
     pub storage_state: Option<crate::storage::StorageState>,
+    /// Automatic accessibility audits, from the `accessibility` section of
+    /// `agito.config.json` by default; off when it has none.
+    pub accessibility: crate::accessibility::AccessibilityOptions,
 }
 
 impl Default for ContextOptions {
@@ -133,6 +136,7 @@ impl Default for ContextOptions {
             action_timeout: Duration::from_millis(c.locator.timeout.unwrap_or(30_000)),
             navigation_timeout: Duration::from_secs(30),
             storage_state: None,
+            accessibility: crate::accessibility::AccessibilityOptions::default(),
         }
     }
 }
@@ -205,6 +209,8 @@ pub(crate) struct ContextInner {
     pub selectors: SelectorRegistry,
     pub hooks: Vec<Arc<dyn LifecycleHook>>,
     pub accessibility_rules: Vec<Arc<dyn crate::accessibility::AccessibilityRule>>,
+    /// What automatic audits found, each violation once.
+    pub accessibility_found: Arc<Mutex<Vec<crate::accessibility::Violation>>>,
     plugin_host: PluginHost,
     pub init_scripts: Mutex<Vec<String>>,
     pub routes: Mutex<Vec<crate::network::RouteEntry>>,
@@ -257,13 +263,22 @@ impl BrowserContext {
             let _ = std::fs::remove_dir_all(&download_dir);
             return Err(e);
         }
+        let accessibility_found = Arc::new(Mutex::new(Vec::new()));
+        let mut hooks = host.hooks();
+        if options.accessibility.mode != crate::accessibility::AccessibilityMode::Off {
+            hooks.push(Arc::new(crate::accessibility::hook::AuditHook::new(
+                options.accessibility.clone(),
+                accessibility_found.clone(),
+            )));
+        }
         let inner = Arc::new(ContextInner {
             browser,
             id,
             options,
             selectors: host.selectors(),
-            hooks: host.hooks(),
+            hooks,
             accessibility_rules: host.accessibility_rules(),
+            accessibility_found,
             plugin_host: host,
             init_scripts: Mutex::new(Vec::new()),
             routes: Mutex::new(Vec::new()),
@@ -709,6 +724,12 @@ impl BrowserContext {
         .await;
         let _ = page.close().await;
         written
+    }
+
+    /// What this context's automatic accessibility audits have found so far, each violation
+    /// once. Empty when [`ContextOptions::accessibility`] has audits off.
+    pub fn accessibility_violations(&self) -> Vec<crate::accessibility::Violation> {
+        self.inner.accessibility_found.lock().unwrap().clone()
     }
 
     /// Closes every page in the context and the context itself.

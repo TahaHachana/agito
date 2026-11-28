@@ -177,6 +177,10 @@ pub fn junit(run: &Run) -> String {
             if o.attempts > 1 {
                 properties.push((ATTEMPTS, o.attempts.to_string()));
             }
+            if !o.accessibility.is_empty() {
+                let json = serde_json::to_string(&o.accessibility).expect("violations serialize");
+                properties.push((ACCESSIBILITY, json));
+            }
             if !properties.is_empty() {
                 body.push_str("      <properties>\n");
                 for (name, value) in properties {
@@ -188,6 +192,8 @@ pub fn junit(run: &Run) -> String {
                 }
                 body.push_str("      </properties>\n");
             }
+            // Notes for <system-out>, of which a test case has at most one.
+            let mut notes: Vec<String> = Vec::new();
             match (o.status, &o.quarantine) {
                 (Status::Skipped, _) => body.push_str("      <skipped/>\n"),
                 (status, Some(reason)) => {
@@ -196,11 +202,7 @@ pub fn junit(run: &Run) -> String {
                     } else {
                         format!("failed: {message}")
                     };
-                    let _ = writeln!(
-                        body,
-                        "      <system-out>{}</system-out>",
-                        xml(&format!("QUARANTINED ({reason}); {what}"))
-                    );
+                    notes.push(format!("QUARANTINED ({reason}); {what}"));
                 }
                 (Status::Failed, None) => {
                     let _ = writeln!(
@@ -218,6 +220,16 @@ pub fn junit(run: &Run) -> String {
                     );
                 }
                 (Status::Passed, None) => {}
+            }
+            // Accessibility findings are notes, not failures: in enforce mode the harness has
+            // already failed the test on them, and in warn mode they must not fail it.
+            notes.extend(o.accessibility.iter().map(|v| format!("A11Y {v}")));
+            if !notes.is_empty() {
+                let _ = writeln!(
+                    body,
+                    "      <system-out>{}</system-out>",
+                    xml(&notes.join("\n"))
+                );
             }
             if let Some(shot) = &o.screenshot {
                 // Jenkins' JUnit attachments convention.
@@ -248,6 +260,8 @@ pub const QUARANTINE: &str = "agito.quarantine";
 pub const OUTCOME: &str = "agito.outcome";
 pub const MESSAGE: &str = "agito.message";
 pub const ATTEMPTS: &str = "agito.attempts";
+/// A test's accessibility violations, as JSON.
+pub const ACCESSIBILITY: &str = "agito.accessibility";
 
 /// A self-contained page: the counts, then every test, failures first, with their output and
 /// screenshot inline.
@@ -306,6 +320,13 @@ pub fn html(run: &Run) -> String {
         let mut detail = String::new();
         if let Some(reason) = &o.quarantine {
             let _ = write!(detail, "<p class=\"note\">Quarantined: {}</p>", xml(reason));
+        }
+        if !o.accessibility.is_empty() {
+            detail.push_str("<p class=\"note\">Accessibility:</p><ul class=\"a11y\">");
+            for v in &o.accessibility {
+                let _ = write!(detail, "<li>{}</li>", xml(&v.to_string()));
+            }
+            detail.push_str("</ul>");
         }
         if o.flaky {
             let _ = write!(
@@ -368,6 +389,7 @@ summary.row { cursor:pointer; } summary.row::marker { color:var(--muted); }
 .badge.passed { color:var(--pass); } .badge.failed { color:var(--fail); } .badge.flaky { color:var(--flaky); }
 .badge.quarantined { color:var(--quar); } .badge.skipped { color:var(--skip); }
 .detail { padding:0 14px 14px; } .note { color:var(--muted); margin:4px 0; }
+.a11y { list-style:disc; border:0; padding-left:20px; margin:4px 0; font-size:13px; } .a11y li + li { border:0; }
 pre { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:12px; overflow:auto; font-size:12px; margin:8px 0; }
 img { max-width:100%; border:1px solid var(--line); border-radius:6px; margin-top:8px; }
 </style></head><body><main>
@@ -457,6 +479,7 @@ mod tests {
             message: None,
             output: None,
             screenshot: None,
+            accessibility: Vec::new(),
         }
     }
 

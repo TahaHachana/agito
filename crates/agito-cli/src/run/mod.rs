@@ -62,6 +62,11 @@ pub struct RunArgs {
     #[arg(long, value_name = "FILE")]
     flaky_history: Option<PathBuf>,
 
+    /// Audit every page for accessibility as tests run: warn reports violations, enforce also
+    /// fails the tests that leave them. Overrides the accessibility mode in agito.config.json.
+    #[arg(long, value_name = "MODE", value_parser = ["off", "warn", "enforce"])]
+    a11y: Option<String>,
+
     /// Arguments for `cargo test --no-run`, such as -p, --features or --release.
     #[arg(allow_hyphen_values = true, value_name = "CARGO_ARGS")]
     cargo_args: Vec<String>,
@@ -134,6 +139,7 @@ pub fn run(args: RunArgs) -> Result<bool> {
         test_threads,
         include_ignored: filters.include_ignored || filters.ignored_only,
         results_root: results_root.clone(),
+        accessibility: args.a11y.clone(),
     };
     let mark = |outcome: &mut Outcome| {
         if outcome.quarantine.is_none() && quarantine_list.contains(&outcome.full_name) {

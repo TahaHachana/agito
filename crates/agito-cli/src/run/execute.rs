@@ -38,6 +38,8 @@ pub struct Outcome {
     /// What the test printed, as libtest captured it, for a failure.
     pub output: Option<String>,
     pub screenshot: Option<PathBuf>,
+    /// What automatic accessibility audits found during the test.
+    pub accessibility: Vec<agito::accessibility::Violation>,
 }
 
 impl Outcome {
@@ -58,6 +60,7 @@ impl Outcome {
             message: None,
             output: None,
             screenshot: None,
+            accessibility: Vec::new(),
         }
     }
 
@@ -74,6 +77,8 @@ pub struct Settings {
     pub include_ignored: bool,
     /// A directory this run owns, for the harness's result records.
     pub results_root: PathBuf,
+    /// `--a11y`: the accessibility mode for every test, overriding the configuration.
+    pub accessibility: Option<String>,
 }
 
 /// Arguments beyond this length are split over several runs of a binary, well within
@@ -134,6 +139,9 @@ fn run_once(
 
     let mut command = binary.command();
     command.env(RESULTS_DIR, &results_dir);
+    if let Some(mode) = &settings.accessibility {
+        command.env("AGITO_ACCESSIBILITY_MODE", mode);
+    }
     if let Some(threads) = settings.test_threads {
         command.arg(format!("--test-threads={threads}"));
     }
@@ -256,6 +264,7 @@ fn apply_record(outcome: &mut Outcome, results_dir: &Path, binary: &Binary) {
     outcome.duration = Some(Duration::from_secs_f64(record.duration_ms / 1000.0));
     outcome.screenshot = record.screenshot;
     outcome.message = record.message;
+    outcome.accessibility = record.accessibility;
     if let Some(reason) = record.quarantine {
         outcome.quarantine = Some(reason);
         // libtest saw a pass: the harness does not fail a quarantined test.

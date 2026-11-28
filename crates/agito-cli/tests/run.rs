@@ -288,3 +288,52 @@ fn merged_shards_add_up_to_the_whole_run() {
     assert!(stderr.contains("shard 2 of 2 is missing"), "{stderr}");
     std::fs::remove_dir_all(state).unwrap();
 }
+
+#[cfg(feature = "integration")]
+#[test]
+fn a11y_warn_reports_violations_and_enforce_fails_on_them() {
+    let state = scratch("a11y");
+    let junit = state.join("a11y.xml");
+    let report = format!("junit:{}", junit.display());
+    let (output, stdout) = run(
+        &state,
+        &[
+            "--a11y",
+            "warn",
+            "--reporter",
+            &report,
+            "--features",
+            "browser",
+            "--",
+            "a11y::",
+        ],
+    );
+    assert!(output.status.success(), "warn mode passes: {stdout}");
+    assert_eq!(
+        labelled(&stdout, "PASS"),
+        ["run-fixture::a11y::visits_a_page_with_an_unlabelled_image"]
+    );
+    assert!(stdout.contains("A11Y [error] a11y-alt-text"), "{stdout}");
+    assert!(
+        stdout.contains("Accessibility: 1 violation(s) in 1 test"),
+        "{stdout}"
+    );
+    let xml = std::fs::read_to_string(&junit).unwrap();
+    assert!(
+        xml.contains("<system-out>A11Y [error] a11y-alt-text"),
+        "{xml}"
+    );
+    assert!(xml.contains(r#"name="agito.accessibility""#), "{xml}");
+    assert!(!xml.contains("<failure"), "warn mode fails nothing: {xml}");
+
+    let (output, stdout) = run(
+        &state,
+        &["--a11y", "enforce", "--features", "browser", "--", "a11y::"],
+    );
+    assert!(!output.status.success(), "enforce mode fails: {stdout}");
+    assert!(
+        stdout.contains("accessibility violation(s), in enforce mode"),
+        "{stdout}"
+    );
+    std::fs::remove_dir_all(state).unwrap();
+}

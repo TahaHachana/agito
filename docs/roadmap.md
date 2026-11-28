@@ -118,7 +118,7 @@ planned. That way the attribute can be used as `#[agito::test]`.
 | 3 | Plugins, selectors, locators, network/routing/HAR, dialogs, popups, uploads, downloads | Done |
 | 4 | `expect`, `#[agito::test]`, samples | Done; smaller gaps remain |
 | 5 | Firefox over WebDriver BiDi | Deferred until there is demand |
-| 6 | Accessibility, performance, coverage, tracing, video | In progress: accessibility audits done; the audit hook next |
+| 6 | Accessibility, performance, coverage, tracing, video | In progress: accessibility done |
 | 7 | CLI | Done; `run` settings in `agito.config.json` left |
 | 8 | Recorder, codegen, check-selectors | Not started |
 | 9 | MCP server | Not started |
@@ -139,9 +139,10 @@ phase number:
    push, and its JUnit and HTML reports are kept as an artifact.
 2. **The gaps users hit first:** done. Storage state (reusing a login), the `has` /
    `has_not` filters, the protocol log, and the role and accessible-name assertions.
-3. **Phase 6's accessibility layer.** Audits are done (`page.audit_accessibility`,
-   `to_pass_accessibility_audit`); the audit hook and `agito run --a11y` are next. The
-   accessibility tree then serves the snapshot format the MCP server reproduces.
+3. **Phase 6's accessibility layer:** done. Audits (`page.audit_accessibility`,
+   `to_pass_accessibility_audit`), the automatic audit hook with warn and enforce modes, and
+   `agito run --a11y`. The accessibility tree next serves the snapshot format the MCP server
+   reproduces.
 4. **Phase 9, the MCP server,** which lets agents drive a browser through agito.
 5. **The rest of phase 6** (performance, coverage, tracing, video), then phases 8 and 10.
 6. **Phase 5, Firefox,** when someone needs it.
@@ -193,9 +194,9 @@ The plan, when it comes:
   - Done: the accessibility-tree query (`page.accessibility_snapshot`), the collectors, the
     WCAG contrast calculator, the nine rules and `page.audit_accessibility` across a page's
     frames, `to_pass_accessibility_audit`, and custom rules through plugins.
-  - Next: the audit lifecycle hook, which audits after navigations and actions in warn or
-    enforce mode with skippable rules, set in `agito.config.json`, the harness failing an
-    `#[agito::test]` in enforce mode, and `agito run --a11y` reporting violations.
+  - Done too: the audit hook, which audits after navigations and actions in warn or enforce
+    mode with skippable rules, set in `agito.config.json`; the harness failing an
+    `#[agito::test]` in enforce mode; and `agito run --a11y` reporting violations.
 - **Performance:** the metrics collector, budgets, and LCP/FCP/TTFB/CLS/INP assertions.
 - **Coverage:** JS precise coverage and CSS rule usage, the aggregator and thresholds, and
   source-map remapping (VLQ decoder, parser, fetcher, remapper).
