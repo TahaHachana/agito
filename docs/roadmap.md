@@ -121,7 +121,7 @@ planned. That way the attribute can be used as `#[agito::test]`.
 | 6 | Accessibility, performance, coverage, tracing, video | In progress: accessibility done |
 | 7 | CLI | Done; `run` settings in `agito.config.json` left |
 | 8 | Recorder, codegen, check-selectors | Not started |
-| 9 | MCP server | In progress: the stdio server, snapshots and core tools; reports, dialogs, logs and frames next |
+| 9 | MCP server | In progress: the stdio server and the always-available tools; the `--caps` groups next |
 | 10 | Visual runner | Not started |
 
 Releases: 0.1.0 covered phases 0-4 (MVP); 0.2.0 added iframes and network; 0.3.0 added
@@ -148,9 +148,10 @@ phase number:
    - A, done: the `agito-mcp` crate and `agito mcp` over stdio, the snapshot format with
      refs, and the core tools (navigation, snapshot, screenshot, element actions, waits,
      `evaluate`, tabs, `browser_status`).
-   - B: action reports and the settle wait, dialogs, console and network logs, frames
-     (frame-prefixed refs, `frame_list`, `frame_select`), `audit_accessibility`,
-     `get_performance`, `handle_dialog`, `generate_pom`.
+   - B, done: action reports and the settle wait, dialogs, console and network logs, frames
+     (frame-prefixed refs, `frame_list`, `frame_select`), `audit_accessibility` and
+     `handle_dialog`. `get_performance` follows phase 6's performance metrics, and
+     `generate_pom` phase 8's code generation.
    - C: the `--caps` groups: coordinates, contexts and routing; recording after tracing and
      video.
    - D: streamable HTTP with a bearer token, the security policy (output directory, client

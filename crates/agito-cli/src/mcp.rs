@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use agito::BrowserChannel;
-use agito_mcp::ServerOptions;
+use agito_mcp::{DialogPolicy, ServerOptions};
 use anyhow::{Result, anyhow, bail};
 use clap::Args;
 
@@ -55,6 +55,16 @@ pub struct McpArgs {
     #[arg(long, value_name = "MS")]
     navigation_timeout: Option<u64>,
 
+    /// How long an action waits for the page to show what it did, in milliseconds. 0 reports
+    /// the instant the action returns. Default: 500.
+    #[arg(long, value_name = "MS")]
+    settle: Option<u64>,
+
+    /// What becomes of a JavaScript dialog: ask leaves it for handle_dialog, accept or dismiss
+    /// answers it at once.
+    #[arg(long, value_name = "POLICY", default_value = "ask")]
+    dialogs: DialogPolicy,
+
     /// Let tools open file:// URLs.
     #[arg(long)]
     allow_unrestricted_file_access: bool,
@@ -90,6 +100,8 @@ pub async fn mcp(args: McpArgs) -> Result<()> {
         timezone: args.timezone,
         timeout: args.timeout.map(Duration::from_millis),
         navigation_timeout: args.navigation_timeout.map(Duration::from_millis),
+        settle: args.settle.map(Duration::from_millis),
+        dialogs: args.dialogs,
         allow_unrestricted_file_access: args.allow_unrestricted_file_access,
     };
     agito_mcp::serve_stdio(options)

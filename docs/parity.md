@@ -15,7 +15,7 @@ run real browser tests.
 | 6 | Accessibility, performance, coverage, tracing, video | In progress: accessibility done |
 | 7 | CLI (`agito`) | Done; `run` settings in `agito.config.json` left |
 | 8 | Recorder, codegen, check-selectors | Not started |
-| 9 | MCP server | In progress: the stdio server, snapshots and core tools; reports, dialogs, logs and frames next |
+| 9 | MCP server | In progress: the stdio server and the always-available tools; the `--caps` groups next |
 | 10 | Visual runner | Not started |
 
 ## Ported
@@ -51,7 +51,7 @@ run real browser tests.
 | `motus run` (`TestRunner`, `TestDiscovery`, `ShardSelector`, console, JUnit and HTML reporters, `FlakeHistoryReporter`), `[Quarantine]` | `agito run` (`crates/agito-cli/src/run`), `#[agito::test(quarantine = "reason")]`, `harness::TestRecord` |
 | `motus shard merge` (`ShardMerger`) | `agito shard merge` |
 | `AccessibilityAuditHook`, `AccessibilityOptions`, `motus run --a11y` | `accessibility::hook`, `AccessibilityOptions` (`ContextOptions::accessibility`), `agito run --a11y` |
-| `Motus.Mcp`: `motus mcp`, `SnapshotSerializer`, `PageSnapshotService`, `BrowserSessionManager` and the core tools | `agito-mcp`: `agito mcp`, `snapshot`, `session` and `tools` (increment A of phase 9) |
+| `Motus.Mcp`: `motus mcp`, `SnapshotSerializer`, `PageSnapshotService`, `FrameCollector`, `BrowserSessionManager`, `ActionRunner`, `ActionReport`, `DialogService`, `ConsoleService`, `NetworkService` and the always-available tools | `agito-mcp`: `agito mcp`, `snapshot`, `session`, `runner`, `tab` and `tools` |
 | `Frame.LocatorByBackendNodeId`, `BackendNodeIdSelectorStrategy` | `Frame::locator_by_backend_node_id`, `backend-node-id=` |
 | `AccessibilityTreeQuery`, `AccessibilitySnapshotAsync`, the collectors, `ContrastCalculator`, `AccessibilityRuleEngine`, the nine rules, `RunAccessibilityAuditAsync`, `ToPassAccessibilityAuditAsync`, `IAccessibilityRule` | `agito::accessibility`: `page.accessibility_snapshot`, `page.audit_accessibility`, `to_pass_accessibility_audit`, `AccessibilityRule` |
 | `IBrowserContext.StorageStateAsync`, `ContextOptions.StorageState` | `BrowserContext::storage_state`, `set_storage_state`, `ContextOptions::storage_state`, `agito::storage` |
@@ -212,6 +212,19 @@ run real browser tests.
   - The session holds its tabs itself, since an agito context holds pages weakly.
   - `agito mcp` drives Chromium-based browsers only; Motus also launched Firefox, where
     snapshots were unavailable.
+  - Each tab keeps its own console and network logs from the moment it opens; Motus logged
+    only the active tab, from when it became active.
+  - Frames are matched to the iframe elements hosting them through the browser's record of
+    each frame's owner. Motus compared window indexes, and when those did not settle it, took
+    the first frame not yet claimed.
+  - A field's typed text is folded into its value; Motus printed it twice
+    (`textbox "Card" [value="4242"]: 4242`).
+  - An action that navigates the page retires the refs in hand, and using one says the page
+    navigated; Motus kept them, so they were resolved against the new document.
+  - `audit_accessibility` audits frames too, naming each violation's `frameUrl`, and its text
+    lists the violations rather than only counting them.
+  - Not yet: `get_performance` and `generate_pom`, which wait for performance metrics and
+    code generation in agito itself.
 
 ## Inherited as-is
 

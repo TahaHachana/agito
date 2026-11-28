@@ -7,8 +7,10 @@
 //! refs a snapshot assigns.
 #![warn(missing_docs)]
 
+mod runner;
 mod session;
 mod snapshot;
+mod tab;
 mod tools;
 
 use std::path::PathBuf;
@@ -18,6 +20,7 @@ use std::time::Duration;
 use agito::{BrowserChannel, ContextOptions, LaunchOptions, Viewport};
 use rmcp::ServiceExt;
 
+pub use tab::DialogPolicy;
 pub use tools::AgitoServer;
 
 /// How `agito mcp` starts its browser and what it allows. Every field left as `None` falls
@@ -47,9 +50,17 @@ pub struct ServerOptions {
     pub timeout: Option<Duration>,
     /// How long a navigation waits to finish.
     pub navigation_timeout: Option<Duration>,
+    /// How long an action waits, after the browser accepts it, for the page to show what it
+    /// did before the result is written. Default: 500 ms.
+    pub settle: Option<Duration>,
+    /// What becomes of a dialog a page raises. Default: left open for `handle_dialog`.
+    pub dialogs: DialogPolicy,
     /// Let tools open `file://` URLs.
     pub allow_unrestricted_file_access: bool,
 }
+
+/// How long an action waits for the page to show what it did, unless told otherwise.
+pub const DEFAULT_SETTLE: Duration = Duration::from_millis(500);
 
 /// The viewport a session's pages get unless told otherwise.
 pub const DEFAULT_VIEWPORT: (u32, u32) = (1280, 800);

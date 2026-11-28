@@ -81,7 +81,7 @@ fn a_client_drives_a_page_through_agito_mcp() {
     client.send(json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }));
 
     let tools = client.request("tools/list", json!({}));
-    assert_eq!(tools["tools"].as_array().unwrap().len(), 24, "{tools}");
+    assert_eq!(tools["tools"].as_array().unwrap().len(), 31, "{tools}");
 
     let navigated = client.call(
         "navigate",

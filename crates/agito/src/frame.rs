@@ -532,6 +532,21 @@ impl Frame {
         Ok(())
     }
 
+    /// The backend node id of the `<iframe>` or `<frame>` element holding this frame, in its
+    /// parent's document, as accessibility nodes name it; `None` for a main frame.
+    pub async fn owner_backend_node_id(&self) -> Result<Option<i64>> {
+        let Some(parent) = self.parent_frame() else {
+            return Ok(None);
+        };
+        let owner = parent
+            .session()
+            .send(&dom::GetFrameOwnerParams {
+                frame_id: self.id.clone(),
+            })
+            .await?;
+        Ok(Some(owner.backend_node_id))
+    }
+
     /// The `<iframe>` element in `parent` that holds this frame.
     async fn owner_element(&self, parent: &Frame) -> Result<ElementHandle> {
         let session = parent.session();
